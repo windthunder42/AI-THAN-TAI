@@ -160,24 +160,14 @@ GAME_CONFIG = {
     "6/55": {"type": "standard", "range": 55, "balls": 6, 
              "data_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power655.jsonl"},
     "6/45": {"type": "standard", "range": 45, "balls": 6,
-             "data_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/mega645.jsonl"},
+             "data_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power645.jsonl"},
     "5/35": {"type": "special", "range": 35, "balls": 5, "special_range": 12, 
-             "data_url": "custom_scraper"}, # Use custom scraper
+             "data_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/power535.jsonl"},
     "Max 3D Pro": {"type": "3d_pro", "range": 999, "balls": 2, 
-                   "data_url": None} # No jsonl yet
+                   "data_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/3d_pro.jsonl"}
 }
 
-
-
-def scrape_max3dpro_history(limit_draws=100):
-    """
-    Placeholder/Fallback for Max 3D Pro scraping.
-    Returns simulated data for now.
-    """
-    return generate_simulation("Max 3D Pro", limit_draws)
-
 def mode_3d_engine(game_type, history):
-
     """
     Engine for Max 3D Pro (000-999).
     User wants 1 Jackpot pair.
@@ -222,7 +212,6 @@ def mode_3d_engine(game_type, history):
     
     return final_pair, {"Analysis": "Frequency Top 20"}
 
-
 @st.cache_data(ttl=3600)
 def load_real_data(game_type):
     """
@@ -230,35 +219,11 @@ def load_real_data(game_type):
     Returns the last 400 draws.
     """
     cfg = GAME_CONFIG[game_type]
-    limit = 10000 # Maximize history (User Request)
+    limit = 400 # Maximize history but keep it fast
     
     try:
         url = cfg.get("data_url")
-        
-        if game_type == "Max 3D Pro":
-            # Pass limit for parallel scraper
-            return scrape_max3dpro_history(limit_draws=limit)
-
-        if game_type == "5/35":
-            # Use custom xskt scraper
-            try:
-                raw_data = xskt_scraper.scrape_5x35_30days()
-                history = []
-                for entry in raw_data:
-                    # Format: [main_sorted, special]
-                    # Scraper returns: {'results': [n1..n5], 'special': n_sp}
-                    draw = sorted(entry['results']) + [entry['special']]
-                    history.append(draw)
-                
-                # Scraper returns newest first, we want oldest first for history
-                return history[::-1]
-            except Exception as e:
-                print(f"Error scraping 5/35: {e}")
-                return generate_simulation(game_type, limit)
-
-        if not url: return []
-        if not url:
-            return generate_simulation(game_type, limit)
+        if not url: return generate_simulation(game_type, limit)
 
         # Fetch Data
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -276,12 +241,27 @@ def load_real_data(game_type):
             if not line.strip(): continue
             try:
                 data = json.loads(line)
+                
+                # --- MAX 3D PRO PARSING ---
+                if game_type == "Max 3D Pro":
+                    # Format: "result": {"Giải Đặc biệt": ["740", "262"], ...}
+                    res_dict = data.get("result", {})
+                    if isinstance(res_dict, dict):
+                        special_prize = res_dict.get("Giải Đặc biệt", [])
+                        if len(special_prize) == 2:
+                            # Convert to int
+                            draw = [int(n) for n in special_prize]
+                            history.append(draw)
+                    continue
+
+                # --- 6/55, 6/45, 5/35 PARSING ---
+                # Format: "result": [n1, n2, ....]
                 raw_result = data.get("result", [])
                 
-                # Format Data based on Game Type
+                if not isinstance(raw_result, list): continue
+
                 if game_type == "6/55":
-                    # Data has 7 numbers (6 main + 1 bonus). We typically predict 6 main.
-                    # Taking first 6 for standard analysis.
+                    # Data has 7 numbers (6 main + 1 bonus). 
                     if len(raw_result) >= 6:
                         history.append(sorted(raw_result[:6]))
                         
@@ -292,37 +272,19 @@ def load_real_data(game_type):
                         
                 elif game_type == "5/35":
                     # Data has 6 numbers (5 main + 1 special).
-                    # Code expects: 5 main sorted + 1 special.
-                    # Check if raw_result is structured [main..., special]
-                    # Based on inspection: [7,9,10,16,19, 9] (sorted first 5, last is special)
+                    # [7,9,10,16,19, 9] (sorted first 5, last is special)
                     if len(raw_result) >= 6:
                         main_part = sorted(raw_result[:5])
                         special_part = raw_result[5]
-                        # FILTER: Ensure all main <= 35 and special <= 12
-                        if any(x > 35 for x in main_part) or special_part > 12:
-                            continue
                         history.append(main_part + [special_part])
                         
             except Exception as e:
                 continue
                 
         if len(history) > 10:
-            # --- REALTIME UPDATE: Check against Live Source ---
-            try:
-                latest_live = fetch_latest_realtime(game_type)
-                if latest_live:
-                    last_historical = history[-1]
-                    # Check if live is different (newer) than historical
-                    # Be careful with 5/35 special ball structure
-                    if latest_live != last_historical:
-                         # Append live result!
-                         history.append(latest_live)
-                         # Maybe notify user via session state? 
-                         # st.toast("Đã cập nhật kết quả mới nhất từ Minh Ngọc!")
-            except Exception as e_live:
-                print(f"Live fetch failed: {e_live}")
-                
-            return history[-limit:] # Return most recent
+             # Try to fetch very latest if possible (for 3D Pro might be hard)
+             # For now, just return what we have
+             return history[-limit:]
         else:
             return generate_simulation(game_type, limit)
 
@@ -339,7 +301,6 @@ def fetch_latest_realtime(game_type):
         url_map = {
             "6/55": "https://www.minhngoc.net.vn/ket-qua-xo-so/dien-toan-6x55.html",
             "6/45": "https://www.minhngoc.net.vn/ket-qua-xo-so/dien-toan-6x45.html",
-            # "5/35": "https://www.minhngoc.net.vn/ket-qua-xo-so/max-3d-pro.html" # 5/35 url might differ or not available easily
         }
         
         target_url = url_map.get(game_type)
@@ -352,14 +313,6 @@ def fetch_latest_realtime(game_type):
         
         soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # Minh Ngoc structure usually:
-        # <div class="box_kqxs"> ... <div class="day_so_ket_qua_v2"> ... <span>01</span> ...
-        
-        # Adjust selector based on inspection (Common pattern for Minh Ngoc)
-        # Note: This is brittle. If they change UI, it breaks.
-        # But for "Calibration", it's worth trying.
-        
-        # Try finding the specific ball box
         box = soup.find("div", class_="box_kqxs")
         if not box: return None
         
@@ -376,10 +329,6 @@ def fetch_latest_realtime(game_type):
         
         # Format
         if game_type == "6/55":
-            # Usually 6 main + 1 bonus.
-            # Minh ngoc might show 6 balls first then bonus separately?
-            # Or 7 balls in a row.
-            # Let's take sorted first 6.
             if len(nums) >= 6:
                 return sorted(nums[:6])
                 
@@ -390,7 +339,6 @@ def fetch_latest_realtime(game_type):
         return None
         
     except Exception as e:
-        print(f"Scrape error: {e}")
         return None
 
 def generate_simulation(game_type, limit=400):
