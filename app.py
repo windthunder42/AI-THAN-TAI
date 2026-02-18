@@ -382,6 +382,40 @@ def analyze_history(history):
     
     return hot_numbers, cold_numbers
 
+def analyze_special_number(history, special_range=12):
+    """
+    Analyzes the special number (last number in 5/35 draw) history.
+    Returns: The most likely special number based on weighted frequency.
+    """
+    if not history: return random.randint(1, special_range)
+    
+    # Extract special numbers (last element of each draw)
+    specials = [draw[-1] for draw in history if len(draw) > 0]
+    
+    # Weighted Frequency (Recency bias)
+    freq = Counter()
+    decay = 0.98
+    for i, num in enumerate(reversed(specials)):
+        weight = decay ** i
+        freq[num] += weight
+        
+    # Get top 3 candidates
+    most_common = freq.most_common(3)
+    
+    if not most_common: return random.randint(1, special_range)
+    
+    # 70% chance to pick #1, 20% #2, 10% #3
+    candidates = [num for num, w in most_common]
+    weights = [0.7, 0.2, 0.1]
+    
+    # Adjust if fewer than 3
+    if len(candidates) < 3:
+        return candidates[0]
+        
+    import random
+    return random.choices(candidates, weights=weights[:len(candidates)], k=1)[0]
+
+
 # --- ALGORITHMS ---
 
 # --- ALGORITHMS ---
@@ -512,7 +546,8 @@ def passes_filters(draw, game_type):
             # Empirical "Golden Mean" for 6/55 is around 7-10.
             # Adjusted Phase 11.1: Lowered min to 1.8 to allow for "Twin Clusters" (e.g. 23-24, 32-33)
             # as seen in 5/35 results.
-            if avg_diff < 1.8 or avg_diff > 20.0:
+            min_diff = 1.2 if game_type == "5/35" else 1.8
+            if avg_diff < min_diff or avg_diff > 20.0:
                 return False
                 
     # --- 6. Advanced Pattern Filters (New) ---
@@ -609,6 +644,25 @@ def core_generate_predictions(game_type, history, hot_nums, cold_nums, pool_size
             
         for n in range(1, cfg["range"] + 1):
             if n not in scores: scores[n] = 0.1
+
+    # --- Neighbor Boosting (5/35 Only) ---
+    # Addresses user feedback: "Results off by a few units"
+    if game_type == "5/35":
+        neighborhood_scores = scores.copy()
+        for n in range(1, cfg["range"] + 1):
+            current_score = scores.get(n, 0)
+            if current_score > 0:
+                # Spread 15% of score to immediate neighbors
+                boost = current_score * 0.15
+                
+                prev_n = n - 1
+                if prev_n >= 1:
+                    neighborhood_scores[prev_n] = neighborhood_scores.get(prev_n, 0) + boost
+                    
+                next_n = n + 1
+                if next_n <= cfg["range"]:
+                    neighborhood_scores[next_n] = neighborhood_scores.get(next_n, 0) + boost
+        scores = neighborhood_scores
         
     # Boost Bankers Score to Infinity
     for b in bankers:
@@ -1371,6 +1425,189 @@ def analyze_historical_echo(matches, game_type):
     
     return {k: v/total for k, v in frequency.items()}
 
+def analyze_sequence_similarity(history, game_type, depth=3):
+    """
+    High-Precision Algorithm: Sequence Matching (Soi Cầu Chuỗi).
+    Finds historical blocks of 'depth' draws that look like the most recent 'depth' draws.
+    Returns: {next_number: weighted_score}
+    """
+    if not history or len(history) < (depth * 2) + 10: return {}
+    
+    # 1. Get recent sequence (Trajectory)
+    recent_seq = history[-depth:]
+    
+    # 2. Scan history
+    matches = []
+    
+    # Iterate through history window. Stop before the very end (to avoid matching itself).
+    # We need a window of size 'depth' and then the 'next' draw.
+    limit = len(history) - depth - 1 
+    
+    for i in range(limit):
+        # Candidate sequence from history
+        candidate_seq = history[i : i+depth]
+        next_draw = history[i+depth]
+        
+        # 3. Calculate Similarity
+        # Simple approach: Count total shared numbers across the block?
+        # Or position-wise Jaccard?
+        # Let's use Jaccard Overlap for the whole block.
+        
+        set_recent = set(num for draw in recent_seq for num in draw)
+        set_candidate = set(num for draw in candidate_seq for num in draw)
+        
+        intersection = len(set_recent.intersection(set_candidate))
+        union = len(set_recent.union(set_candidate))
+        
+        similarity = intersection / union if union > 0 else 0
+        
+        # Threshold: > 40% similarity is significant for lottery
+        if similarity > 0.35:
+             matches.append((next_draw, similarity))
+             
+    # 4. Aggregate Next Draws
+    prediction_scores = Counter()
+    for draw, score in matches:
+        for num in draw:
+            prediction_scores[num] += score * score # Square the score to emphasize strong matches
+            
+    # Normalize
+    total = sum(prediction_scores.values())
+    if total == 0: return {}
+    
+    return {k: (v/total) * 100.0 for k, v in prediction_scores.items()}
+
+    return {k: (v/total) * 100.0 for k, v in prediction_scores.items()}
+
+def calculate_fractal_score(history, game_type):
+    """
+    Calculates Fractal Resonance Score based on Multi-Scale Analysis.
+    Scales: Micro (8), Meso (35), Macro (100).
+    """
+    cfg = GAME_CONFIG[game_type]
+    scores = Counter()
+    
+    if not history: return scores
+    
+    # 1. Define Windows
+    windows = {
+        "Micro": history[-8:],   # Short term momentum
+        "Meso": history[-35:],   # Medium term trend
+        "Macro": history[-100:]  # Long term baseline
+    }
+    
+    # Weights for each scale
+    weights = {
+        "Micro": 4.0,  # High impact of immediate trend
+        "Meso": 2.5,
+        "Macro": 1.0
+    }
+    
+    for scale, window in windows.items():
+        if not window: continue
+        
+        # Calculate Frequency in this window
+        freq = Counter()
+        for draw in window:
+            for n in draw:
+                # Handle Max 3D Pro strings
+                val = int(n) if isinstance(n, str) else n
+                freq[val] += 1
+                
+        # Normalize: Probability = Count / len(window)
+        # Max 3D Pro starts from 0, others from 1
+        start_n = 0 if game_type == "Max 3D Pro" else 1
+        
+        for n in range(start_n, cfg["range"] + 1):
+            prob = freq[n] / len(window)
+            scores[n] += prob * weights[scale]
+            
+    return scores
+
+def mode_g_fractal(game_type, history, hot_nums, cold_nums, seed=None):
+    """
+    Fractal Chaos Mode: Multi-Scale Resonance.
+    Focuses on numbers that are significant across multiple timeframes.
+    """
+    rng = random.Random(seed) if seed is not None else random
+    cfg = GAME_CONFIG[game_type]
+    
+    # 1. Get Fractal Scores
+    fractal_scores = calculate_fractal_score(history, game_type)
+    
+    # 2. Add some random noise for "Chaos" (and to avoid static output)
+    # The user wants mostly high probability, but lottery needs variance.
+    final_scores = {}
+    for n, s in fractal_scores.items():
+        # Noise +/- 10%
+        noise = rng.uniform(0.9, 1.1)
+        final_scores[n] = s * noise
+        
+    # 3. Select Top Candidates
+    # We want a pool of reliable numbers, say Top 18 (System 18)
+    sorted_candidates = sorted(final_scores.keys(), key=lambda x: final_scores[x], reverse=True)
+    pool = sorted_candidates[:20] # Take Top 20
+    
+    # 4. Pick 6 numbers from the Top 20
+    # Weighted choice? Or just random from the Elite Pool?
+    # Let's use weighted choice based on their fractal score.
+    
+    weights = [final_scores[n] for n in pool]
+    
+    # Normalize weights
+    total_w = sum(weights)
+    if total_w == 0: return sorted(rng.sample(range(1, cfg["range"]+1), cfg["balls"])), {}
+    
+    norm_weights = [w/total_w for w in weights]
+    
+    # Sampling without replacement
+    # python's random.choices is with replacement. 
+    # numpy.random.choice is good but we use standard lib here.
+    
+    # Custom weighted sample without replacement
+    results = []
+    pool_copy = list(pool)
+    weights_copy = list(norm_weights)
+    
+    while len(results) < cfg["balls"]:
+        if not pool_copy: break
+        # Pick one
+        pick = rng.choices(pool_copy, weights=weights_copy, k=1)[0]
+        results.append(pick)
+        
+        # Remove and re-normalize
+        idx = pool_copy.index(pick)
+        pool_copy.pop(idx)
+        weights_copy.pop(idx)
+        
+        # Re-norm
+        s = sum(weights_copy)
+        if s == 0: 
+            # Fill rest randomly from remaining pool
+            leftover = cfg["balls"] - len(results)
+            if len(pool_copy) >= leftover:
+                results.extend(rng.sample(pool_copy, leftover))
+            break
+        else:
+            weights_copy = [w/s for w in weights_copy]
+            
+    # Handle Special Number for 5/35
+    final_results = sorted(results)
+    if cfg["type"] == "special":
+        # Predict special number
+        pred_special = analyze_special_number(history, cfg["special_range"])
+        final_results.append(pred_special)
+        
+    # Handle Max 3D Pro Formatting
+    if game_type == "Max 3D Pro":
+         final_results = [f"{x:03d}" for x in sorted(results)]
+
+    return final_results, {
+        "Analysis": "Fractal Multi-Scale",
+        "Top Signals": sorted_candidates[:5]
+    }
+
+
 def mode_f_hybrid(game_type, history, hot_nums, cold_nums, seed=None, quantum_dob=None, iching_dob=None, bio_score=0.0, bankers=None, style="Modern"):
     """
     Grand Consensus Mode: Combines AI, Quantum, and I Ching.
@@ -1408,6 +1645,9 @@ def mode_f_hybrid(game_type, history, hot_nums, cold_nums, seed=None, quantum_do
          last_matches_count = len(matches)
          if matches:
              echo_scores = analyze_historical_echo(matches, game_type)
+
+    # --- PHASE 22: SEQUENCE MATCHING (HIGH PRECISION) ---
+    sequence_scores = analyze_sequence_similarity(history, game_type, depth=3)
     
     
     # --- PHASE 21: THE SINGULARITY (META-OPTIMIZATION) ---
@@ -1518,6 +1758,12 @@ def mode_f_hybrid(game_type, history, hot_nums, cold_nums, seed=None, quantum_do
         if n in echo_scores:
              # REDUCED: Was 5.0, now 1.5. Let core frequency speak. -> NOW BOOSTED
              votes[n] *= (1.0 + (echo_scores[n] * 2.5 * w_history))
+
+    # Sequence Matching Boost
+    for n in votes:
+        if n in sequence_scores:
+             # Strong signal: Add significant weight
+             votes[n] += sequence_scores[n] * 2.0 * w_history
         
     # 3. Selection
     w_freq = calculate_weighted_frequency(history)
@@ -1532,8 +1778,10 @@ def mode_f_hybrid(game_type, history, hot_nums, cold_nums, seed=None, quantum_do
     
     if cfg["type"] == "special":
         main_balls = results[:cfg["balls"]]
-        special = rng.randint(1, cfg["special_range"])
-        results = main_balls + [special]
+        # special = rng.randint(1, cfg["special_range"])
+        # Improved: Use Data-Driven Prediction
+        pred_special = analyze_special_number(history, cfg["special_range"])
+        results = main_balls + [pred_special]
     
     # Debug Info
     last_real = set(history[-1]) if history else set()
@@ -1578,7 +1826,29 @@ def generate_predictions(game_type, model_choice="Hybrid", seed=None, bio_score=
     hot_nums, cold_nums = analyze_history(history)
     
     # 3. Predict
-    # Hybrid Mode
+    if model_choice == "Fractal Chaos":
+        return mode_g_fractal(game_type, history, hot_nums, cold_nums, seed=seed)
+        
+    elif model_choice == "System 12":
+        # Direct System Play
+        pool = mode_system_play(game_type, history, hot_nums, cold_nums, system_size=12, seed=seed, style=style)
+        return sorted(pool), {"Analysis": "System 12 Optimization", "Pool Size": 12}
+        
+    elif model_choice == "System 18":
+        # Direct System Play
+        pool = mode_system_play(game_type, history, hot_nums, cold_nums, system_size=18, seed=seed, style=style)
+        return sorted(pool), {"Analysis": "System 18 Optimization", "Pool Size": 18}
+        
+    elif model_choice == "Random":
+        # Pure Random
+        cfg = GAME_CONFIG[game_type]
+        rng = random.Random(seed)
+        res = sorted(rng.sample(range(1, cfg["range"]+1), cfg["balls"]))
+        if cfg["type"] == "special":
+             res = res[:5] + [rng.randint(1, cfg["special_range"])]
+        return res, {"Analysis": "Pure Randomness"}
+
+    # Hybrid Mode (Default)
     results, details = mode_f_hybrid(
         game_type, history, hot_nums, cold_nums, 
         seed=seed, bio_score=bio_score, bankers=bankers, style=style,
@@ -1842,350 +2112,200 @@ def add_to_log(game_type, model_name, numbers, draw_time, seed):
 
 def main():
     st.set_page_config(
-        page_title="AI Thần Tài - Vietlott Predictor",
+        page_title="AI Thần Tài Pro (Lite)",
         page_icon="🎱",
         layout="centered"
     )
 
-    # Custom CSS (Re-applied for safety)
+    # Custom CSS
     st.markdown("""
     <style>
         .ball-container {
             display: flex;
             justify_content: center;
-            gap: 15px;
-            margin-top: 20px;
-            margin-bottom: 20px;
+            gap: 12px;
+            margin-top: 25px;
+            margin-bottom: 25px;
             flex-wrap: wrap;
         }
         .ball {
-            width: 60px;
-            height: 60px;
-            background: radial-gradient(circle at 30% 30%, #ff4b4b, #990000);
+            width: 55px;
+            height: 55px;
+            background: linear-gradient(145deg, #ff4b4b, #cc0000);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify_content: center;
             color: white;
-            font-weight: bold;
-            font-size: 24px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-            border: 2px solid #ff9999;
+            font-weight: 800;
+            font-size: 22px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            border: 2px solid #ffaaaa;
         }
         .ball-special {
-            background: radial-gradient(circle at 30% 30%, #1E90FF, #00008B);
+            background: linear-gradient(145deg, #1E90FF, #0000CD);
             border: 2px solid #87CEFA;
-            color: white;
         }
         .stButton>button {
             width: 100%;
-            height: 70px;
-            font-size: 20px !important;
-            font-weight: bold !important;
-            border-radius: 12px;
+            height: 65px;
+            font-size: 22px !important;
+            font-weight: 700 !important;
+            border-radius: 15px;
+            background: linear-gradient(90deg, #FF4B4B, #FF914D);
+            border: none;
+            color: white !important;
             transition: all 0.3s;
         }
         .stButton>button:hover {
-            transform: scale(1.02);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255, 75, 75, 0.4);
         }
         .stat-box {
-            background-color: #f0f2f6;
-            padding: 15px;
-            border-radius: 10px;
+            background: #ffffff;
+            padding: 12px;
+            border-radius: 12px;
             text-align: center;
-            margin-bottom: 10px;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
-        .stat-title {
-            font-size: 14px;
-            color: #555;
-            text-transform: uppercase;
-            margin-bottom: 5px;
-        }
-        .stat-value {
-            font-size: 18px;
-            font-weight: bold;
-            color: #333;
-        }
-        h1 {
+        .main-header {
             text-align: center;
+            font-family: 'Helvetica Neue', sans-serif;
+            margin-bottom: 30px;
+        }
+        .main-header h1 {
             background: -webkit-linear-gradient(45deg, #FF4B4B, #FF914D);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            padding-bottom: 10px;
+            font-size: 2.8rem;
+            margin-bottom: 0;
         }
     </style>
     """, unsafe_allow_html=True)
 
-    st.title("AI Thần Tài Pro 🔮")
-    st.caption("Phiên bản Tinh gọn: Tập trung vào chất lượng dự đoán.")
-    
+    # Header
+    st.markdown('<div class="main-header"><h1>AI THẦN TÀI PRO</h1><p>Công nghệ Dự đoán Xổ số Đa Chiều</p></div>', unsafe_allow_html=True)
+
     # Lucky BG
     bg_file = "lucky_bg.png"
     if os.path.exists(bg_file):
          set_png_as_page_bg(bg_file)
 
-    # --- HIDDEN CONFIG (DEFAULTS) ---
-    st.session_state["USE_PHASE_11"] = True # Always ON for best results
-
-    # Sidebar: Essential Config
-    with st.sidebar:
-        st.header("Cấu hình")
-        game_choice = st.selectbox("Loại vé:", ["6/55", "6/45", "5/35", "Max 3D Pro"])
-        
-        # Calculate Next Draw Time
-        next_draw = get_next_draw_time(game_choice)
-        time_str = next_draw.strftime('%H:%M - %d/%m/%Y')
-        
-        st.markdown(f"**Kỳ quay kế tiếp:**")
-        st.markdown(f"### 🕒 {time_str}")
-        
-        # Default Seeds (Hybrid Mode)
-        deterministic_seed = int(next_draw.timestamp())
-        
-        # Load Data Status
-        if GAME_CONFIG[game_choice].get("data_url"):
-            # Try to get date from last history item?
-            # History is a list of [numbers]. It doesn't have date attached in current `load_real_data` return structure.
-            # We strictly only return numbers.
-            # But let's assume if it's not simulated, it's relatively new.
-            st.success("🟢 Dữ liệu Online (Live)")
-        else:
-            st.warning("🟠 Dữ liệu Giả lập")
-            
-        st.markdown("---")
-        st.markdown("---")
-        with st.expander("⚡ Năng lượng Thời gian thực"):
-            st.info("Hệ thống sẽ tự động lấy **Ngày - Giờ - Phút - Giây** tại thời điểm bạn bấm nút để tính toán trường năng lượng (Kinh Dịch & Lượng Tử).")
-            # Use current time for "Personal/Live" energy
-            now_energy = datetime.now()
-            u_quantum_dob = now_energy 
-            vip_iching_dob = now_energy
-
-
-    # Load Data
-    cfg = GAME_CONFIG[game_choice]
-    with st.spinner('Đang tải và phân tích dữ liệu...'):
-        history = load_real_data(game_choice)
-    
-    if not history:
-        # Fallback if load fails (though load_real_data should return something or simulated)
-        history = []
-        hot_nums, cold_nums = [], []
-    else:
-        hot_nums, cold_nums = analyze_history(history)
+    # --- CONFIGURATION ROW ---
     c1, c2 = st.columns(2)
+    
     with c1:
-        st.markdown(f"""
-        <div class="stat-box">
-            <div class="stat-title">🔥 Số Nóng</div>
-            <div class="stat-value">{', '.join(map(str, hot_nums))}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        game_choice = st.selectbox("🎯 CHỌN LOẠI VÉ", ["6/55", "6/45", "5/35", "Max 3D Pro"])
+        
     with c2:
-        st.markdown(f"""
-        <div class="stat-box">
-            <div class="stat-title">❄️ Số Lạnh</div>
-            <div class="stat-value">{', '.join(map(str, cold_nums))}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        # Simplied Model Names
+        model_options = {
+            "Hybrid AI (Chuẩn)": "Hybrid",
+            "Fractal Chaos (Mới)": "Fractal Chaos",
+            "Hệ thống 12 (Bao)": "System 12",
+            "Hệ thống 18 (Bao)": "System 18", 
+            "Ngẫu Nhiên (Vui)": "Random"
+        }
+        display_model = st.selectbox("🧠 CHỌN THUẬT TOÁN", list(model_options.keys()))
+    # Advanced (Quantum/I Ching)
+    with st.expander("⚙️ Nâng cao (Phong thủy & Lượng tử)"):
+         st.caption("Nhập ngày sinh để kích hoạt năng lượng cá nhân hóa.")
+         dob_input = st.date_input("Ngày sinh của bạn:", value=None)
+         
+         if dob_input:
+             # Personal Mode
+             u_quantum_dob = datetime.combine(dob_input, datetime.min.time())
+             vip_iching_dob = u_quantum_dob
+             st.success("✅ Đã kích hoạt năng lượng cá nhân!")
+         else:
+             # Real-time Mode
+             now_energy = datetime.now()
+             u_quantum_dob = now_energy 
+             vip_iching_dob = now_energy
+             st.info("⚡ Đang dùng năng lượng thời gian thực (Ngày giờ hiện tại).")
 
-    st.markdown("---")
+    # --- DATA STATUS & STATS ---
+    cfg = GAME_CONFIG[game_choice]
     
-    # --- MAIN INTERFACE ---
-    # Tabs for the 2 Core Modes
-    # Tabs for the 2 Core Modes
-    tab1, tab2 = st.tabs(["💎 CHỐT 6 SỐ VÀNG (VIP LOCK)", "🕸️ MA TRẬN BAO VÂY (SYSTEM)"])
+    # Load Data silently
+    history = load_real_data(game_choice)
+    hot_nums, cold_nums = [], []
     
-        # --- MODE 1: HYBRID SINGLE PICK ---
-    with tab1:
-        st.subheader("💎 CHỐT CỨNG 6 SỐ (VIP)")
-        st.caption("Hệ thống sử dụng siêu thuật toán **Hybrid** để khóa chết 6 con số có xác suất nổ cao nhất. Không random, không may rủi.")
-        
-        # --- BANKER STRATEGY UI ---
-        # Get suggested hot numbers for user convenience
-        suggested_bankers = hot_nums[:5]
-        
-        # --- BANKER STRATEGY UI (IMPROVED) ---
-        st.markdown("#### 🔒 Cao thủ chốt số (Chiến thuật 2 Chân trụ):")
-        
-        # Banker Mode
-                # Banker Mode
-        banker_mode = st.radio("Chế độ chọn số trụ:", ["⛔ Không dùng (Free)", "✋ Tự chọn (Manual)", "🤖 AI Tự bắt (Auto-Detect)"], horizontal=True, index=0)
-        
-        user_bankers = []
-        max_val = cfg["range"]
-        
-        if banker_mode == "⛔ Không dùng (Free)":
-            st.caption("AI sẽ tự do chọn số mà không bị ràng buộc bởi bất kỳ số trụ nào.")
-            user_bankers = []
+    if history:
+         hot_nums, cold_nums = analyze_history(history)
+         status_color = "🟢"
+         status_text = "Dữ liệu Online"
+    else:
+         status_color = "🟠"
+         status_text = "Dữ liệu Giả lập"
+         
+    # Mini Stats Display
+    with st.expander(f"{status_color} Thống kê nhanh ({status_text})", expanded=False):
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            st.info(f"🔥 Nóng: {', '.join(map(str, hot_nums[:6]))}")
+        with sc2:
+            st.info(f"❄️ Lạnh: {', '.join(map(str, cold_nums[:6]))}")
             
-        elif banker_mode == "✋ Tự chọn (Manual)":
-            st.caption("Chọn 1-6 con số bạn 'kết' nhất. AI sẽ khóa các số này và tìm các số còn lại.")
-            user_bankers = st.multiselect(
-                "Chọn số trụ:", 
-                options=range(1, max_val + 1),
-                max_selections=6,
-                help="Chọn tối đa 6 số."
-            )
+    # --- PREDICTION BUTTON ---
+    st.markdown("###")
+    if st.button("🔮 PHÂN TÍCH & DỰ ĐOÁN NGAY", type="primary"):
+        
+        # Progress Effect
+        progress_text = st.empty()
+        bar = st.progress(0)
+        
+        stages = [
+            "⚡ Đang khởi động Neural Network...",
+            "🌌 Quét dữ liệu Đa vũ trụ...",
+            "🌀 Phân tích Fractal & Chuỗi số...",
+            "✅ Đang tổng hợp kết quả..."
+        ]
+        
+        for i, stage in enumerate(stages):
+            progress_text.text(stage)
+            bar.progress((i + 1) * 25)
+            time.sleep(0.3)
+            
+        progress_text.empty()
+        bar.empty()
+        
+        # Generate
+        seed = int(time.time())
+        
+        # Determine styles based on chaos/random
+        style = "Modern"
+        bankers = None # No UI for bankers anymore to keep it simple
+        
+        results, details = generate_predictions(
+            game_type=game_choice,
+            model_choice=model_key,
+            seed=seed,
+            history=history,
+            bankers=bankers,
+            style=style
+        )
+        
+        # --- DISPLAY RESULT ---
+        st.markdown(f"<h3 style='text-align: center; color: #333;'>💎 KẾT QUẢ GỢI Ý ({game_choice})</h3>", unsafe_allow_html=True)
+        
+        # Display Balls
+        display_balls(results, game_choice)
+        
+        # Success Message
+        if "System" in model_key:
+             st.success(f"📌 Đã lọc ra bộ {len(results)} số tiềm năng nhất để bao lưới.")
         else:
-            # Auto Mode: Smart Banker Strategy (Kiềng 3 chân)
-            # 1. Hot (Cầu đang chạy): Take top 2
-            smart_bankers = []
-            if len(hot_nums) >= 2:
-                smart_bankers.extend(hot_nums[:2])
-            
-            # 2. Cold (Phục kích): Take 1 coldest (that is not in hot - obviously)
-            if cold_nums:
-                 # Ensure no duplicate
-                 for c in cold_nums:
-                     if c not in smart_bankers:
-                         smart_bankers.append(c)
-                         break
-            
-            # 3. Falling (Lô rơi): Take 1 from last draw
-            if history:
-                last_draw = history[-1]
-                # Try to find a number from last draw that is NOT in smart_bankers
-                for n in last_draw:
-                     if isinstance(n, int) and n not in smart_bankers and n <= max_val:
-                         smart_bankers.append(n)
-                         break
-            
-            # Fill if missing (up to 4)
-            if len(smart_bankers) < 4:
-                remainder = [x for x in hot_nums if x not in smart_bankers]
-                smart_bankers.extend(remainder[:4-len(smart_bankers)])
-                
-            auto_bankers = sorted(smart_bankers[:4])
-            
-            st.info(f"🤖 AI kích hoạt chiến thuật **Kiềng 3 Chân**: {auto_bankers}")
-            st.caption("• 2 Số Nóng (Cầu chạy) + 1 Số Lạnh (Phục kích) + 1 Số Rơi (Kỳ trước)")
-            user_bankers = auto_bankers
-                
-        if user_bankers:
-            st.success(f"🎯 Đã khóa mục tiêu: {user_bankers}")
+             st.success(f"✨ Bộ số vàng đã được khóa. Chúc bạn may mắn!")
 
-        # --- PREDICTION STYLE UI ---
-        pred_style = st.radio("Phong cách dự đoán:", ["🔮 Hiện đại (Modern)", "🎲 Cổ điển (Classic Chaos)"], horizontal=True, help="Hiện đại = Chuẩn xác theo thống kê. Cổ điển = Ngẫu nhiên, phiêu linh.")
-        style_val = "Modern" if "Hiện đại" in pred_style else "Classic"
-
-        # --- CHAOS FACTOR (RE-ROLL) ---
-        if "chaos_factor" not in st.session_state:
-            st.session_state.chaos_factor = 0
-
-        col_chaos1, col_chaos2 = st.columns([3, 1])
-        with col_chaos1:
-             st.info(f"⚡ Trạng thái năng lượng: {st.session_state.chaos_factor}")
-        with col_chaos2:
-             if st.button("🔄 Làm mới"):
-                 st.session_state.chaos_factor += 1
-                 # st.experimental_rerun() # Deprecated
-                 st.rerun()
-
-        # Update Seed with Chaos
-        final_seed = deterministic_seed + (st.session_state.chaos_factor * 777)
-
-        
-        # Calculate Bio-score silently
-        bio_score = calculate_biorhythm(vip_iching_dob, next_draw)
-        
-        if st.button("💎 KÍCH HOẠT CHỐT SỐ (VIP)", type="primary", key="btn_hybrid"):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            steps = [
-                (10, "⚡ Khởi động AI Neural Network..."),
-                (30, "⚛️ Phân tích Lượng tử & Trạng thái sóng..."),
-                (60, "☯️ Gieo quẻ Kinh dịch & So sánh mẫu hình..."),
-                (80, "🧬 Tổng hợp & Bỏ phiếu đồng thuận..."),
-                (100, "✅ Đã tìm thấy điểm hội tụ!")
-            ]
-            
-            for p, msg in steps:
-                progress_bar.progress(p)
-                status_text.text(msg)
-                time.sleep(0.4)
-                
-            # EXECUTE HYBRID ENGINE (VIA WRAPPER)
-            result_numbers, details = generate_predictions(
-                game_choice, 
-                history=history,
-                seed=final_seed,
-                quantum_dob=u_quantum_dob,
-                iching_dob=vip_iching_dob,
-                bio_score=bio_score,
-                bankers=user_bankers,
-                style=style_val
-            )
-            
-            st.toast("Đã khóa bộ số tối ưu!")
-            status_text.empty()
-            progress_bar.empty()
-            
-            # Display Result
-            st.markdown(f"### 💎 KẾT QUẢ CHỐT SỐ ({game_choice}):")
-            
-            # Highlight Bankers if present
-            if user_bankers:
-                st.caption(f"🔒 Bao gồm số trụ: {user_bankers}")
-                
-            display_balls(result_numbers, game_choice)
-            
-            st.success("🎯 Đã KHÓA 6 số vàng. Chúc bạn may mắn!")
-            
-            st.session_state["last_hybrid_result"] = result_numbers
-            
-            with st.expander("🔍 Xem giải trình chi tiết (Debug)"):
-                 st.write("**Dựa trên sự đồng thuận của 3 phương pháp:**")
-                 st.write("- **AI Pool:**", details.get("AI Pool", []))
-                 # ...
-
-    # --- MODE 2: MATRIX WHEELING ---
-    with tab2:
-        st.subheader("Hệ thống Ma trận Thông minh")
-        st.caption("Chọn ra tập hợp 10-12 số tiềm năng và tạo các vé bao vây để tối ưu chi phí & cơ hội.")
-        
-        # Inputs
-        c_sys1, c_sys2 = st.columns([2, 1])
-        with c_sys1:
-             pool_size = st.select_slider("Số lượng số trong vùng chọn (Pool Size):", options=[8, 10, 12, 15], value=10)
-        
-        if st.button("TẠO MA TRẬN VÉ", type="primary", key="btn_matrix"):
-            with st.spinner(f"Đang lọc ra {pool_size} số tốt nhất từ hàng triệu khả năng..."):
-                # 1. Get the Best Pool (System Play Mode)
-                # Use Hybrid Logic but ask for a larger pool? 
-                # mode_system_play is good for this.
-                matrix_pool = mode_system_play(
-                    game_choice, history, hot_nums, cold_nums, 
-                    system_size=pool_size, 
-                    seed=final_seed
-                )
-                time.sleep(1.0)
-            
-            st.success(f"Đã chọn được {len(matrix_pool)} số tiềm năng!")
-            st.write(f"**🎱 Vùng chọn:** {', '.join(map(str, sorted(matrix_pool)))}")
-            
-            # 2. Generate Wheel
-            method = "full" if pool_size <= 8 else "reduced"
-            tickets = generate_matrix_wheel(matrix_pool, pick_k=cfg["balls"], method=method)
-            
-            st.markdown(f"#### 🎫 Danh sách vé đề xuất ({len(tickets)} vé):")
-            
-            # Grid Display
-            t_html = "<div style='display: flex; flex-wrap: wrap; gap: 10px;'>"
-            for t_idx, ticket in enumerate(tickets):
-                t_str = " ".join([f"{x:02d}" for x in sorted(ticket)])
-                # CSS Color Fix
-                t_html += f"<div style='background:#f0f2f6; color:#333333; padding:8px; border-radius:5px; border:1px solid #ccc; font-family:monospace; font-weight:bold;'>Vé {t_idx+1}: {t_str}</div>"
-            t_html += "</div>"
-            st.markdown(t_html, unsafe_allow_html=True)
-            
-            if method == "reduced":
-                st.info("ℹ️ **Cơ chế:** Dùng thuật toán nén (Reduced Wheel) để bao phủ tối đa các cặp số với chi phí thấp nhất. Nếu bộ số Vùng chọn chứa 6 số trúng, bạn gần như chắc chắn trúng giải Nhì/Ba.")
-            else:
-                st.success("ℹ️ **Cơ chế:** Bao vây tuyệt đối (Full Cover). Đảm bảo trúng 100% nếu số nằm trong Vùng chọn.")
+        # Debug/Explain Info
+        with st.expander("🔍 Xem phân tích chi tiết"):
+             st.json(details)
+             
+    # Footer
+    st.markdown("---")
+    st.caption("AI Thần Tài Pro © 2026 - Dự đoán xổ số bằng công nghệ AI & Lượng tử.")
 
 if __name__ == "__main__":
     main()
