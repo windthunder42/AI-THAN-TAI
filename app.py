@@ -2212,7 +2212,9 @@ def main():
     # Advanced (Quantum/I Ching)
     with st.expander("⚙️ Nâng cao (Phong thủy & Lượng tử)"):
          st.caption("Nhập ngày sinh để kích hoạt năng lượng cá nhân hóa.")
-         dob_input = st.date_input("Ngày sinh của bạn:", value=None)
+         min_date = datetime(1920, 1, 1)
+         max_date = datetime.now()
+         dob_input = st.date_input("Ngày sinh của bạn:", value=None, min_value=min_date, max_value=max_date)
          
          if dob_input:
              # Personal Mode
