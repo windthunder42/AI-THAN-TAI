@@ -2208,6 +2208,7 @@ def main():
             "Ngẫu Nhiên (Vui)": "Random"
         }
         display_model = st.selectbox("🧠 CHỌN THUẬT TOÁN", list(model_options.keys()))
+        model_key = model_options[display_model]
     # Advanced (Quantum/I Ching)
     with st.expander("⚙️ Nâng cao (Phong thủy & Lượng tử)"):
          st.caption("Nhập ngày sinh để kích hoạt năng lượng cá nhân hóa.")
