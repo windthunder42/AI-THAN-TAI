@@ -16,6 +16,7 @@ import math
 import base64
 import re
 import xskt_scraper
+from algorithm_genetic import GeneticLotteryEngine
 
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
@@ -503,36 +504,51 @@ def passes_filters(draw, game_type):
     """
     Checks if a draw looks 'normal' (Sum, Even/Odd).
     """
-    # 1. Sum Filter
-    # 6/55 avg sum: ~168. Range 120-220.
-    # 6/45 avg sum: ~138. Range 100-180.
-    # 5/35 avg sum: ~90. Range 60-120.
+    # 1. Sum Filter (Statistically Optimized Bell Curve)
+    # 6/55 avg sum: ~168.
+    # 6/45 avg sum: ~138.
+    # 5/35 avg sum: ~90.
     
     s = sum(draw)
     is_valid_sum = False
     
     if game_type == "6/55":
-        is_valid_sum = 100 <= s <= 230
+        is_valid_sum = 130 <= s <= 206
     elif game_type == "6/45":
-        is_valid_sum = 90 <= s <= 190
-    elif game_type == "5/35": # Note: draw length might be 6 (5+1). Use sum of main 5 usually.
-        # But draw passed here is likely sorted list.
-        # For simplicity, filter based on total sum. 
-        is_valid_sum = 50 <= s <= 150
+        is_valid_sum = 110 <= s <= 166
+    elif game_type == "5/35": 
+        is_valid_sum = 65 <= s <= 115
         
     if not is_valid_sum: return False
     
-    # 2. Even/Odd Ratio
-    # Best is 3:3, 4:2, 2:4. (or 3:2 for 5 numbers)
+    # 2. Even/Odd Ratio (Statistically Optimized)
+    # 6-ball: Enforce 2:4, 3:3, or 4:2
+    # 5-ball: Enforce 2:3 or 3:2
     evens = len([n for n in draw if n % 2 == 0])
     total = len(draw)
     
     if total == 6:
-        # Avoid 6:0 or 0:6
-        if evens == 0 or evens == 6: return False
+        if evens < 2 or evens > 4: return False
     elif total == 5:
-        if evens == 0 or evens == 5: return False
+        if evens < 2 or evens > 3: return False
         
+    # 3. Low/High Ratio
+    lows = 0
+    if game_type == "6/55":
+        lows = len([n for n in draw if n <= 27])
+        if lows < 2 or lows > 4: return False
+    elif game_type == "6/45":
+        lows = len([n for n in draw if n <= 22])
+        if lows < 2 or lows > 4: return False
+    elif game_type == "5/35":
+        lows = len([n for n in draw if n <= 17])
+        if lows < 1 or lows > 4: return False
+        
+    # 4. Prime Number Count
+    primes_list = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53}
+    primes_count = len([n for n in draw if n in primes_list])
+    if primes_count < 1 or primes_count > 3: return False
+
     # --- 5. Golden Ratio (Phi) Spacing Filter (Phase 11) ---
     # Phase 11 Toggling
     if st.session_state.get("USE_PHASE_11", True):
@@ -683,7 +699,7 @@ def core_generate_predictions(game_type, history, hot_nums, cold_nums, pool_size
     best_candidate = []
     max_score = -1
     
-    attempts = 5000 
+    attempts = 20000 
     actual_balls = cfg["balls"]
     
     # Calculate how many needed
@@ -765,6 +781,89 @@ def mode_system_play(game_type, history, hot_nums, cold_nums, system_size=10, se
     Utilizes advanced generation engine.
     """
     return core_generate_predictions(game_type, history, hot_nums, cold_nums, pool_size=system_size, seed=seed, bankers=bankers, style=style)
+
+
+def mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=None):
+    """
+    Mode Jackpot (Optimized): Mở rộng không gian mẫu, không bao giờ loại bỏ số lạnh.
+    Cấu trúc: 1-2 Bankers (Hot), 1 Lạnh (Cold), phần còn lại hoàn toàn ngẫu nhiên.
+    """
+    rng = random.Random(seed) if seed is not None else random
+    cfg = GAME_CONFIG[game_type]
+    
+    # 1. Chọn Bankers (Hot)
+    num_bankers = rng.choice([1, 2])
+    if len(hot_nums) >= num_bankers:
+        bankers = rng.sample(hot_nums[:5], num_bankers)
+    else:
+        bankers = hot_nums
+        
+    # 2. Chọn Số Lạnh (Cold)
+    cold_candidates = cold_nums if cold_nums else []
+    if not cold_candidates:
+        all_nums = set(range(1, cfg["range"] + 1))
+        cold_candidates = list(all_nums - set(hot_nums))
+        
+    cold_pick = rng.sample(cold_candidates, 1)
+    
+    preset = set(bankers + cold_pick)
+    needed = cfg["balls"]
+    if cfg["type"] == "special":
+        needed = 5  # For 5/35, we only need 5 main balls
+        
+    needed_random = needed - len(preset)
+    if needed_random < 0:
+        needed_random = 0
+        
+    full_pool = list(set(range(1, cfg["range"] + 1)) - preset)
+    
+    best_candidate = []
+    attempts = 1000
+    
+    for _ in range(attempts):
+        random_part = rng.sample(full_pool, needed_random)
+        candidate = sorted(list(preset) + random_part)
+        
+        # Relaxed Filter: Sum
+        s = sum(candidate)
+        is_valid_sum = False
+        if game_type == "6/55":
+            is_valid_sum = 90 <= s <= 240
+        elif game_type == "6/45":
+            is_valid_sum = 80 <= s <= 200
+        elif game_type == "5/35":
+            is_valid_sum = 40 <= s <= 160
+        else:
+            is_valid_sum = True
+            
+        if not is_valid_sum: continue
+        
+        # Relaxed Filter: Even/Odd min viable
+        evens = len([n for n in candidate if n % 2 == 0])
+        total = len(candidate)
+        if total == 6 and (evens == 0 or evens == 6): continue
+        if total == 5 and (evens == 0 or evens == 5): continue
+        
+        best_candidate = candidate
+        break
+        
+    if not best_candidate:
+        random_part = rng.sample(full_pool, needed_random)
+        best_candidate = sorted(list(preset) + random_part)
+        
+    final_result = best_candidate
+    
+    if cfg["type"] == "special":
+        special_part = rng.randint(1, cfg["special_range"])
+        final_result.append(special_part)
+        
+    details = {
+        "Analysis": "Jackpot Optimized (Mở Rộng)",
+        "Bankers (Hot)": bankers,
+        "Cold Inclusion": cold_pick
+    }
+        
+    return final_result, details
 
 
 def mode_b_personal_luck(game_type, name, dob):
@@ -1826,18 +1925,38 @@ def generate_predictions(game_type, model_choice="Hybrid", seed=None, bio_score=
     hot_nums, cold_nums = analyze_history(history)
     
     # 3. Predict
-    if model_choice == "Fractal Chaos":
+    if model_choice == "Jackpot":
+        return mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=seed)
+        
+    elif model_choice == "Fractal Chaos":
         return mode_g_fractal(game_type, history, hot_nums, cold_nums, seed=seed)
         
-    elif model_choice == "System 12":
-        # Direct System Play
-        pool = mode_system_play(game_type, history, hot_nums, cold_nums, system_size=12, seed=seed, style=style)
-        return sorted(pool), {"Analysis": "System 12 Optimization", "Pool Size": 12}
+    elif model_choice == "Genetic Alpha":
+        # GA Mode
+        if game_type == "Max 3D Pro":
+            # GA not yet optimized for 3-digit tuples, fallback to Random or implement later
+            # For now, let's use Random for 3D Pro in this mode to avoid crash
+             cfg = GAME_CONFIG[game_type]
+             rng = random.Random(seed)
+             history_flat = [int(x) for pair in history for x in pair] if history else []
+             # ... actually just re-use 3D engine or simple logic
+             # Let's return Fractal for 3D Pro as fallback
+             return mode_g_fractal(game_type, history, hot_nums, cold_nums, seed=seed)
+             
+        ga_engine = GeneticLotteryEngine(game_type, GAME_CONFIG[game_type], history)
+        top_tickets, info = ga_engine.run()
+        # Return the best single ticket for standard display, or list?
+        # Standard display expects one list of numbers. 
+        # But user might want choices. Let's return the best one.
+        best_ticket = top_tickets[0]
         
-    elif model_choice == "System 18":
-        # Direct System Play
-        pool = mode_system_play(game_type, history, hot_nums, cold_nums, system_size=18, seed=seed, style=style)
-        return sorted(pool), {"Analysis": "System 18 Optimization", "Pool Size": 18}
+        # Handle Special (5/35)
+        if GAME_CONFIG[game_type]["type"] == "special":
+             # GA doesn't predict special yet, append random or calculated
+             special = analyze_special_number(history, GAME_CONFIG[game_type]["special_range"])
+             best_ticket.append(special)
+             
+        return best_ticket, {"Analysis": "Genetic Alpha (Evolution)", "Fitness": info["Best Fitness"]}
         
     elif model_choice == "Random":
         # Pure Random
@@ -2201,8 +2320,10 @@ def main():
     with c2:
         # Simplied Model Names
         model_options = {
+            "Tối ưu Jackpot (Khuyên dùng)": "Jackpot",
             "Hybrid AI (Chuẩn)": "Hybrid",
             "Fractal Chaos (Mới)": "Fractal Chaos",
+            "Genetic Alpha (Khoa học)": "Genetic Alpha",
             "Hệ thống 12 (Bao)": "System 12",
             "Hệ thống 18 (Bao)": "System 18", 
             "Ngẫu Nhiên (Vui)": "Random"
