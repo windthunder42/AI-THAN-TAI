@@ -783,73 +783,121 @@ def mode_system_play(game_type, history, hot_nums, cold_nums, system_size=10, se
     return core_generate_predictions(game_type, history, hot_nums, cold_nums, pool_size=system_size, seed=seed, bankers=bankers, style=style)
 
 
+def calculate_overdue_score(history, cfg):
+    """
+    Law of Large Numbers: Calculates how overdue a number is.
+    Returns a dictionary of {number: overdue_score_in_draws}
+    """
+    last_seen = {n: 999 for n in range(1, cfg["range"] + 1)}
+    for idx, draw in enumerate(reversed(history)): # 0 is most recent
+        for n in draw:
+            if n in last_seen and last_seen[n] == 999:
+                last_seen[n] = idx
+    return last_seen
+
 def mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=None):
     """
-    Mode Jackpot (Optimized): Mở rộng không gian mẫu, không bao giờ loại bỏ số lạnh.
-    Cấu trúc: 1-2 Bankers (Hot), 1 Lạnh (Cold), phần còn lại hoàn toàn ngẫu nhiên.
+    Ultimate Jackpot Optimizer
+    Utilizes:
+    1. Law of Large Numbers (Overdue numbers)
+    2. K-Nearest Neighbors (Historical Echoes)
+    3. Decade Balancing
+    4. Third-Order Markov Matrix
+    5. Strict Pattern Filters (No 3 consecutive, Prime logic)
     """
     rng = random.Random(seed) if seed is not None else random
     cfg = GAME_CONFIG[game_type]
     
-    # 1. Chọn Bankers (Hot)
-    num_bankers = rng.choice([1, 2])
-    if len(hot_nums) >= num_bankers:
-        bankers = rng.sample(hot_nums[:5], num_bankers)
-    else:
-        bankers = hot_nums
-        
-    # 2. Chọn Số Lạnh (Cold)
-    cold_candidates = cold_nums if cold_nums else []
-    if not cold_candidates:
-        all_nums = set(range(1, cfg["range"] + 1))
-        cold_candidates = list(all_nums - set(hot_nums))
-        
-    cold_pick = rng.sample(cold_candidates, 1)
+    # 1. Base Scores from Overdue (LLN)
+    overdue_stats = calculate_overdue_score(history, cfg)
+    base_scores = {n: (overdue_stats.get(n, 0) / len(history) if history else 0) * 10 for n in range(1, cfg["range"] + 1)}
     
-    preset = set(bankers + cold_pick)
+    # Add Hot Numbers momentum
+    for n in hot_nums[:5]:
+        base_scores[n] = base_scores.get(n, 0) + 5
+        
+    # 2. Historical Echoes (KNN)
+    if history:
+        last_draw = history[-1]
+        matches = find_historical_matches(history, last_draw, game_type, threshold=0.6)
+        for next_draw in matches:
+            # next_draw might have special ball, we just boost all of them
+            for n in next_draw:
+                if n in base_scores:
+                    base_scores[n] += 15 # Massive boost for historical echo
+                    
+    # 3. Third-Order Markov (Pairs -> Next)
+    if len(history) > 1:
+        prev_draw = sorted(history[-1])
+        markov = calculate_markov_transitions(history)
+        for i in range(len(prev_draw)):
+            for j in range(i+1, len(prev_draw)):
+                key = (prev_draw[i], prev_draw[j])
+                if key in markov:
+                    for n, count in markov[key].items():
+                        if n in base_scores:
+                            base_scores[n] += count * 2
+                            
+    # Pre-calculate Primes for filtering
+    primes_list = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53}
+
+    # Generation loop
+    candidates = sorted(base_scores.keys(), key=lambda x: base_scores[x], reverse=True)
+    best_candidate = []
+    max_score = -1
+    attempts = 5000
+    
     needed = cfg["balls"]
     if cfg["type"] == "special":
-        needed = 5  # For 5/35, we only need 5 main balls
-        
-    needed_random = needed - len(preset)
-    if needed_random < 0:
-        needed_random = 0
-        
-    full_pool = list(set(range(1, cfg["range"] + 1)) - preset)
-    
-    best_candidate = []
-    attempts = 1000
-    
+         needed = 5
+         
     for _ in range(attempts):
-        random_part = rng.sample(full_pool, needed_random)
-        candidate = sorted(list(preset) + random_part)
+        # Probabilistic selection favoring top candidates but allowing some entropy
+        pool_size = rng.randint(20, 40)
+        pool = candidates[:pool_size]
+        if len(pool) < needed: pool = candidates
         
-        # Relaxed Filter: Sum
-        s = sum(candidate)
-        is_valid_sum = False
-        if game_type == "6/55":
-            is_valid_sum = 90 <= s <= 240
-        elif game_type == "6/45":
-            is_valid_sum = 80 <= s <= 200
-        elif game_type == "5/35":
-            is_valid_sum = 40 <= s <= 160
-        else:
-            is_valid_sum = True
+        core_draw = sorted(rng.sample(pool, needed))
+        
+        # --- Strict Filters ---
+        # 1. No 3 consecutive
+        consecutive_count = 0
+        has_3_consec = False
+        for i in range(len(core_draw) - 1):
+            if core_draw[i+1] - core_draw[i] == 1:
+                consecutive_count += 1
+                if consecutive_count >= 2:
+                    has_3_consec = True
+                    break
+            else:
+                consecutive_count = 0
+        if has_3_consec: continue
+        
+        # 2. Decade Distribution
+        decades = [n // 10 for n in core_draw]
+        decade_counts = Counter(decades)
+        if any(count > 3 for count in decade_counts.values()): continue
+        
+        # 3. Prime count (1-3 primes is optimal for jackpots)
+        primes_count = len([n for n in core_draw if n in primes_list])
+        if primes_count < 1 or primes_count > 3: continue
+        
+        # Score the draw
+        draw_score = sum(base_scores.get(n, 0) for n in core_draw)
+        
+        # Small penalty for bad even/odd
+        evens = len([n for n in core_draw if n % 2 == 0])
+        balance_penalty = abs(evens - (needed / 2.0)) * 2
+        
+        total_score = draw_score - balance_penalty
+        
+        if total_score > max_score:
+            max_score = total_score
+            best_candidate = core_draw
             
-        if not is_valid_sum: continue
-        
-        # Relaxed Filter: Even/Odd min viable
-        evens = len([n for n in candidate if n % 2 == 0])
-        total = len(candidate)
-        if total == 6 and (evens == 0 or evens == 6): continue
-        if total == 5 and (evens == 0 or evens == 5): continue
-        
-        best_candidate = candidate
-        break
-        
+    # Fallback if filters are completely too strict
     if not best_candidate:
-        random_part = rng.sample(full_pool, needed_random)
-        best_candidate = sorted(list(preset) + random_part)
+        best_candidate = sorted(rng.sample(candidates[:10], needed))
         
     final_result = best_candidate
     
@@ -857,10 +905,13 @@ def mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=None):
         special_part = rng.randint(1, cfg["special_range"])
         final_result.append(special_part)
         
+    top_overdue = [n for n, score in list(overdue_stats.items()) if score != 999]
+    top_overdue.sort(key=lambda x: overdue_stats[x], reverse=True)
+        
     details = {
-        "Analysis": "Jackpot Optimized (Mở Rộng)",
-        "Bankers (Hot)": bankers,
-        "Cold Inclusion": cold_pick
+        "Analysis": "Ultimate Jackpot Optimizer",
+        "Top Overdue": top_overdue[:3],
+        "Score": round(max_score, 2)
     }
         
     return final_result, details
@@ -2320,7 +2371,7 @@ def main():
     with c2:
         # Simplied Model Names
         model_options = {
-            "Tối ưu Jackpot (Khuyên dùng)": "Jackpot",
+            "Tối ưu Jackpot (Mở Rộng)": "Jackpot",
             "Hybrid AI (Chuẩn)": "Hybrid",
             "Fractal Chaos (Mới)": "Fractal Chaos",
             "Genetic Alpha (Khoa học)": "Genetic Alpha",
