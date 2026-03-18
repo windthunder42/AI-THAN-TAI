@@ -95,7 +95,7 @@ class GeneticLotteryEngine:
         3. Sum Check (Bonus)
         """
         # 1. Frequency Score
-        freq_score = sum(self.hot_stats[n] for n in individual)
+        freq_score = sum(self.hot_stats.get(n, 0) for n in individual)
         
         # 2. Balance Bonus (Odd/Even should be roughly equal)
         odds = sum(1 for n in individual if n % 2 != 0)
@@ -107,7 +107,29 @@ class GeneticLotteryEngine:
         actual_sum = sum(individual)
         sum_penalty = abs(actual_sum - expected_sum) / 2.0
         
-        return freq_score - balance_penalty - sum_penalty
+        # 4. Sequence Penalty (No 3 consecutive numbers)
+        seq_penalty = 0
+        sorted_ind = sorted(individual)
+        consecutive_count = 0
+        for i in range(len(sorted_ind) - 1):
+            if sorted_ind[i+1] - sorted_ind[i] == 1:
+                consecutive_count += 1
+                if consecutive_count >= 2:
+                    seq_penalty += 500  # Massive penalty for 3-in-a-row
+            else:
+                consecutive_count = 0
+                
+        # 5. Gap Efficiency (Avoid clumps by enforcing reasonable deltas)
+        deltas = self.delta_filter.get_deltas(sorted_ind)
+        gap_penalty = 0
+        if self.game_type != "Max 3D Pro":
+            for d in deltas[1:]:  # Check differences between numbers
+                if d == 0:
+                    gap_penalty += 1000 # Duplicates are fatal
+                elif d > 15:
+                    gap_penalty += (d - 15) * 2
+        
+        return freq_score - balance_penalty - sum_penalty - seq_penalty - gap_penalty
 
     def _crossover(self, p1, p2):
         """Uniform Crossover."""

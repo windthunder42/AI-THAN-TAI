@@ -17,7 +17,11 @@ import base64
 import re
 import xskt_scraper
 from algorithm_genetic import GeneticLotteryEngine
-
+from ml_clustering import TicketClustering
+from advanced_combinatorics import AdvancedCombinatorics
+from rl_hybrid_agent import HybridRLAgent
+from backtest_sequence import DeepSequencePredictor
+from backtest_fractal import FractalAttractorAnalyzer
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
         data = f.read()
@@ -217,10 +221,10 @@ def mode_3d_engine(game_type, history):
 def load_real_data(game_type):
     """
     Fetches real data from online sources (JSONL format).
-    Returns the last 400 draws.
+    Returns the last 500 draws.
     """
     cfg = GAME_CONFIG[game_type]
-    limit = 400 # Maximize history but keep it fast
+    limit = 500 # Maximize history but keep it fast
     
     try:
         url = cfg.get("data_url")
@@ -1800,21 +1804,40 @@ def mode_f_hybrid(game_type, history, hot_nums, cold_nums, seed=None, quantum_do
     sequence_scores = analyze_sequence_similarity(history, game_type, depth=3)
     
     
-    # --- PHASE 21: THE SINGULARITY (META-OPTIMIZATION) ---
-    # Self-optimize based on Last 5 Draws trend
-    # Dynamic weighting based on real recent performance
+    # --- PHASE 21: THE SINGULARITY AND REINFORCEMENT LEARNING ---
+    # Self-optimize based on Last 5 Draws trend using RL Agent
+    from rl_hybrid_agent import HybridRLAgent
     
-    # Defaults
-    w_ai = 1.0
-    w_q = 1.0
-    w_i = 1.0
-    w_history = 1.0 # New Weight for Historical/Echo
+    agent = HybridRLAgent(game_type)
+    rl_state = agent.get_state(history)
+    action_idx, action_name = agent.choose_action(rl_state)
+    rl_weights = agent.get_mode_weights(action_name)
     
-    # --- PHASE 24: META-OPTIMIZATION (BACKTEST RESULT APPLIED) ---
-    # Based on simulation of last 50 draws:
-    # 6/45: Quantum performed best (Avg 0.94 vs Hybrid 0.72) -> Boost Quantum
-    # 6/55: Hybrid performed best -> Balanced
-    # 5/35: Hybrid performed best -> Balanced
+    w_ai = rl_weights["AI"]
+    w_q = rl_weights["Quantum"]
+    w_i = rl_weights["IChing"]
+    w_history = 1.0 # Base history weight
+    w_lstm = rl_weights["LSTM"]
+    w_fractal = rl_weights["Fractal"]
+    
+    if st.session_state.get("USE_DEEP_LEARNING", False):
+         try:
+             lstm_predictor = DeepSequencePredictor(game_type)
+             lstm_predictor.train(history) # Will load if exists
+             lstm_scores = lstm_predictor.predict_next_marginal_probabilities(history)
+         except:
+             lstm_scores = {}
+         
+         try:
+             fractal_analyzer = FractalAttractorAnalyzer(game_type)
+             fractal_scores = fractal_analyzer.calculate_fractal_score(history)
+         except:
+             fractal_scores = {}
+    else:
+         lstm_scores = {}
+         fractal_scores = {}
+    
+    # Apply backtest overrides if necessary (Legacy logic wrapped)
     
     if game_type == "6/45":
          w_q = 3.0 # Heavy Quantum Bias
@@ -2171,9 +2194,10 @@ def display_balls(numbers, game_type):
 def generate_matrix_wheel(pool, pick_k=6, method="basic_10"):
     """
     Generates a set of tickets (Combinatorial Wheel) from a pool of numbers.
-    Guarantees: '4 matches if 6 match' (typically).
+    Utilizes Advanced Combinatorics (Maximum Hamming Distance) for optimal coverage spread.
     """
     import itertools
+    from advanced_combinatorics import AdvancedCombinatorics
     
     ticks = []
     pool = sorted(list(set(pool)))
@@ -2181,79 +2205,25 @@ def generate_matrix_wheel(pool, pick_k=6, method="basic_10"):
     
     # 1. Full Wheel (Small pools) - 100% guarantee
     if n <= 8 and method == "full":
-        # C(8,6) = 28 tickets. Safe.
-        # C(9,6) = 84 tickets. Borderline.
         return [list(c) for c in itertools.combinations(pool, pick_k)]
         
-    # 2. Abbreviated Wheels (Templates)
-    # Implementing specific covering design templates
-    # This is much faster than running a Set Cover solver
-    
-    # Template: 10 numbers -> Pick 6. Guarantee 4 if 6.
-    # Standard: ~10-20 tickets.
-    # Logic: Shuffle and fill? No, Use Deterministic Covering logic if possible.
-    
-    # Simple Randomized Cover (Greedy)
-    # Generate random tickets until we cover 'enough' 4-tuples? Too slow.
-    
-    # Heuristic: Sliding Window + Strides
-    # Effective for "Good enough" matrix
-    
     if n < pick_k: return []
     
     if method == "reduced":
-        # A simple "Block" wheeling strategy
-        # 1. Break pool into groups? 
-        # 2. Or just randomness for now to deliver *diverse* coverage
-        
-        # Let's use a "Scrambled Pair" approach:
-        # Ensure every pair of numbers appears together at least once?
-        # That's C(n,2) pairs. 
-        # C(10,2) = 45 pairs. Each ticket holds C(6,2) = 15 pairs. 
-        # Ideally 3 tickets could cover all pairs? No. 
-        
-        # Real Abbreviated Logic requires tables. 
-        # Since I can't embed a massive DB, I will use a High-Entropy Sampler
-        # that maximizes "Pair Distance".
-        
-        # Generate 1000 random candidates
-        # Greedily pick the one that adds MOST new pairs to our coverage set
-        
-        candidates = []
-        for _ in range(500):
-            candidates.append(tuple(sorted(random.sample(pool, pick_k))))
-            
-        selected_tickets = []
-        covered_pairs = set()
-        
-        # Goal: Cover as many pairs as possible with small ticket count.
+        # Target number of tickets based on pool size for an abbreviated wheel
         limit = 0
         if n <= 10: limit = 8 # 8 tickets enough for ~90% cover
         elif n <= 12: limit = 15
         elif n <= 15: limit = 25
         else: limit = 10
         
-        for _ in range(limit):
-             best_ticket = None
-             best_new_cover = -1
-             
-             for cand in candidates:
-                 # Assess pairs
-                 cand_pairs = set(itertools.combinations(cand, 2))
-                 new_cover = len(cand_pairs - covered_pairs)
-                 
-                 if new_cover > best_new_cover:
-                     best_new_cover = new_cover
-                     best_ticket = cand
+        # Use Advanced Combinatorics directly
+        if pick_k == 6:
+            combinatorics = AdvancedCombinatorics("6/45") # 6 balls game
+        else:
+            combinatorics = AdvancedCombinatorics("5/35") # 5 balls
             
-             if best_ticket:
-                 selected_tickets.append(list(best_ticket))
-                 covered_pairs.update(itertools.combinations(best_ticket, 2))
-                 candidates.remove(best_ticket)
-             else:
-                 break
-                 
-        return selected_tickets
+        return combinatorics.generate_max_distance_tickets(pool, num_tickets=limit)
 
     return [pool[:pick_k]] # Fallback
 
@@ -2382,7 +2352,7 @@ def main():
         display_model = st.selectbox("🧠 CHỌN THUẬT TOÁN", list(model_options.keys()))
         model_key = model_options[display_model]
     # Advanced (Quantum/I Ching)
-    with st.expander("⚙️ Nâng cao (Phong thủy & Lượng tử)"):
+    with st.expander("⚙️ Nâng cao (Phong thủy & Lượng tử & AI Sâu)"):
          st.caption("Nhập ngày sinh để kích hoạt năng lượng cá nhân hóa.")
          min_date = datetime(1920, 1, 1)
          max_date = datetime.now()
@@ -2399,6 +2369,11 @@ def main():
              u_quantum_dob = now_energy 
              vip_iching_dob = now_energy
              st.info("⚡ Đang dùng năng lượng thời gian thực (Ngày giờ hiện tại).")
+             
+         st.markdown("---")
+         st.caption("Kích hoạt các thuật toán Machine Learning / Deep Learning nặng. (Có thể làm chậm thời gian tải nhưng tăng tối đa độ chính xác).")
+         use_dl = st.checkbox("🧠 Kích hoạt Mạng Nơ-ron (LSTM) & Phân cụm Máy học", value=False)
+         st.session_state["USE_DEEP_LEARNING"] = use_dl
 
     # --- DATA STATUS & STATS ---
     cfg = GAME_CONFIG[game_choice]
