@@ -6,3 +6,5 @@ beautifulsoup4
 requests
 unidecode
 numpy
+scikit-learn
+tensorflow
