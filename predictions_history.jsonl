@@ -126,3 +126,15 @@
 {"timestamp": "2026-02-04 14:27:44", "game_type": "5/35", "model": "Siêu", "numbers": [3, 4, 9, 11, 13, 7], "draw_time": "2026-02-04 21:00:00", "seed": 1770190064672705}
 {"timestamp": "2026-02-04 14:27:58", "game_type": "5/35", "model": "Siêu", "numbers": [3, 4, 9, 11, 13, 7], "draw_time": "2026-02-04 21:00:00", "seed": 1770190078288175}
 {"timestamp": "2026-02-04 14:28:07", "game_type": "5/35", "model": "Siêu", "numbers": [3, 4, 9, 11, 13, 7], "draw_time": "2026-02-04 21:00:00", "seed": 1770190087403234}
+{"timestamp": "2026-09-23 10:33:00", "game_type": "6/55", "model": "Personal", "numbers": [19, 28, 29, 33, 36, 54], "draw_time": "2026-09-24 18:00:00", "seed": 1790134380}
+{"timestamp": "2026-09-23 10:33:20", "game_type": "6/45", "model": "Personal", "numbers": [18, 20, 33, 34, 37, 39], "draw_time": "2026-09-23 18:00:00", "seed": 1790134400}
+{"timestamp": "2026-09-23 10:34:00", "game_type": "6/45", "model": "AntiSplit", "numbers": [3, 17, 26, 33, 39, 41], "draw_time": "2026-09-23 18:00:00", "seed": 1790134440}
+{"timestamp": "2026-09-23 10:50:05", "game_type": "6/45", "model": "Personal", "numbers": [8, 12, 37, 38, 42, 44], "draw_time": "2026-09-23 18:00:00", "seed": 1790135405}
+{"timestamp": "2026-09-23 10:51:03", "game_type": "6/45", "model": "Wheel 7", "numbers": [8, 12, 20, 37, 38, 42, 44], "draw_time": "2026-09-23 18:00:00", "seed": 1790135463}
+{"timestamp": "2026-09-23 10:51:17", "game_type": "6/45", "model": "Wheel 8", "numbers": [8, 12, 23, 25, 37, 38, 42, 44], "draw_time": "2026-09-23 18:00:00", "seed": 1790135477}
+{"timestamp": "2026-09-23 10:51:22", "game_type": "6/45", "model": "Wheel 8", "numbers": [8, 12, 23, 25, 37, 38, 42, 44], "draw_time": "2026-09-23 18:00:00", "seed": 1790135482}
+{"timestamp": "2026-09-23 10:51:24", "game_type": "6/45", "model": "Wheel 8", "numbers": [8, 12, 23, 25, 37, 38, 42, 44], "draw_time": "2026-09-23 18:00:00", "seed": 1790135484}
+{"timestamp": "2026-09-23 10:53:36", "game_type": "6/55", "model": "Personal", "numbers": [16, 29, 35, 44, 54, 55], "draw_time": "2026-09-24 18:00:00", "seed": 1790135616}
+{"timestamp": "2026-09-23 10:54:02", "game_type": "6/55", "model": "Personal", "numbers": [2, 23, 31, 39, 40, 45], "draw_time": "2026-09-24 18:00:00", "seed": 1790135642}
+{"timestamp": "2026-09-23 10:58:20", "game_type": "6/55", "model": "Personal", "numbers": [2, 7, 12, 43, 46, 55], "draw_time": "2026-09-24 18:00:00", "seed": 1790135900}
+{"timestamp": "2026-09-23 10:58:40", "game_type": "6/55", "model": "Personal", "numbers": [1, 30, 39, 47, 49, 54], "draw_time": "2026-09-24 18:00:00", "seed": 1790135920}

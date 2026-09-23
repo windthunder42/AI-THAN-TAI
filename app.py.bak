@@ -27,34 +27,30 @@ def get_base64_of_bin_file(bin_file):
         data = f.read()
     return base64.b64encode(data).decode()
 
-def set_png_as_page_bg(img_file):
-    bin_str = get_base64_of_bin_file(img_file)
-    mime = "image/jpeg" if img_file.lower().endswith((".jpg", ".jpeg")) else "image/png"
+def set_png_as_page_bg(png_file):
+    bin_str = get_base64_of_bin_file(png_file)
     page_bg_img = '''
     <style>
     .stApp {
-        background-image: url("data:%s;base64,%s");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        background-attachment: fixed;
+    background-image: url("data:image/png;base64,%s");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
     }
-    [data-testid="stHeader"] { background: transparent; }
-    /* Frosted cream card behind the content for readability */
-    .block-container {
-        background: rgba(255, 248, 235, 0.90);
-        border: 2px solid rgba(255, 196, 60, 0.85);
-        border-radius: 22px;
-        box-shadow: 0 12px 40px rgba(60, 0, 0, 0.45);
-        padding: 2rem 2.2rem 1.5rem !important;
-        margin-top: 2.5rem;
-        margin-bottom: 2.5rem;
-        backdrop-filter: blur(4px);
+    /* Add slight overlay to readability */
+    .stApp::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%%;
+        height: 100%%;
+        background: rgba(255, 255, 255, 0.85); /* White overlay 85%% opacity */
+        z-index: -1;
     }
-    .block-container, .block-container label, .block-container p { color: #4a1a10; }
-    .block-container .stButton > button p { color: #ffffff !important; }
     </style>
-    ''' % (mime, bin_str)
+    ''' % bin_str
     st.markdown(page_bg_img, unsafe_allow_html=True)
 
 def calculate_biorhythm(dob, target_date):
@@ -93,7 +89,7 @@ st.markdown("""
 <style>
     .ball-container {
         display: flex;
-        justify-content: center;
+        justify_content: center;
         gap: 15px;
         margin-top: 20px;
         margin-bottom: 20px;
@@ -106,7 +102,7 @@ st.markdown("""
         border-radius: 50%;
         display: flex;
         align-items: center;
-        justify-content: center;
+        justify_content: center;
         color: white;
         font-weight: bold;
         font-size: 24px;
@@ -176,16 +172,6 @@ GAME_CONFIG = {
                    "data_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/main/data/3d_pro.jsonl"}
 }
 
-def main_history(history, game_type):
-    """
-    Strips the special ball from 5/35 draws so it is never counted as a main number.
-    Other games are returned unchanged.
-    """
-    cfg = GAME_CONFIG[game_type]
-    if cfg["type"] != "special":
-        return history
-    return [draw[:cfg["balls"]] for draw in history]
-
 def mode_3d_engine(game_type, history):
     """
     Engine for Max 3D Pro (000-999).
@@ -223,6 +209,7 @@ def mode_3d_engine(game_type, history):
     most_common = counts.most_common(20)
     
     # Randomize slightly ensuring they are top tier
+    import random
     candidates = [n for n, c in most_common]
     if len(candidates) < 2: candidates = [123, 456]
     
@@ -381,30 +368,31 @@ def generate_simulation(game_type, limit=400):
         history.append(draw)
     return history
 
-def analyze_history(history, game_type=None):
+def analyze_history(history):
     """Finds Hot and Cold numbers from history using Weighted Frequency."""
-    if game_type and game_type in GAME_CONFIG:
-        history = main_history(history, game_type)
+    # Use the weighted algorithm
     weighted_freq = calculate_weighted_frequency(history)
-
-    # Include numbers that never appeared (weight 0) so they can count as cold
-    if game_type and GAME_CONFIG.get(game_type, {}).get("type") in ("standard", "special"):
-        for n in range(1, GAME_CONFIG[game_type]["range"] + 1):
-            weighted_freq.setdefault(n, 0.0)
-
+    
+    # Sort by weight
     most_common = weighted_freq.most_common()
+    
+    # Top 5 Hot (Highest weight)
     hot_numbers = [num for num, w in most_common[:5]]
+    
+    # Top 5 Cold (Lowest weight)
+    # Note: Counter only contains numbers that appeared. 
+    # Numbers with 0 appearance are not in 'most_common'.
+    # But for display purpose, least frequent among *appearing* is fine.
     cold_numbers = [num for num, w in most_common[-5:]]
-
+    
     return hot_numbers, cold_numbers
 
-def analyze_special_number(history, special_range=12, rng=None):
+def analyze_special_number(history, special_range=12):
     """
     Analyzes the special number (last number in 5/35 draw) history.
     Returns: The most likely special number based on weighted frequency.
     """
-    rng = rng or random
-    if not history: return rng.randint(1, special_range)
+    if not history: return random.randint(1, special_range)
     
     # Extract special numbers (last element of each draw)
     specials = [draw[-1] for draw in history if len(draw) > 0]
@@ -419,18 +407,21 @@ def analyze_special_number(history, special_range=12, rng=None):
     # Get top 3 candidates
     most_common = freq.most_common(3)
     
-    if not most_common: return rng.randint(1, special_range)
-
+    if not most_common: return random.randint(1, special_range)
+    
     # 70% chance to pick #1, 20% #2, 10% #3
     candidates = [num for num, w in most_common]
     weights = [0.7, 0.2, 0.1]
-
+    
     # Adjust if fewer than 3
     if len(candidates) < 3:
         return candidates[0]
+        
+    import random
+    return random.choices(candidates, weights=weights[:len(candidates)], k=1)[0]
 
-    return rng.choices(candidates, weights=weights[:len(candidates)], k=1)[0]
 
+# --- ALGORITHMS ---
 
 # --- ALGORITHMS ---
 
@@ -516,11 +507,7 @@ def calculate_markov_transitions(history):
 def passes_filters(draw, game_type):
     """
     Checks if a draw looks 'normal' (Sum, Even/Odd).
-    Opt-in via USE_SHAPE_FILTERS: every combination has the same odds, so these
-    filters only narrow which tickets get picked, they never raise the chance of winning.
     """
-    if not st.session_state.get("USE_SHAPE_FILTERS", False):
-        return True
     # 1. Sum Filter (Statistically Optimized Bell Curve)
     # 6/55 avg sum: ~168.
     # 6/45 avg sum: ~138.
@@ -621,6 +608,9 @@ def advanced_pattern_filters(draw, game_type):
         return False
         
     return True
+        
+    return True
+    return True
 
 
 
@@ -642,8 +632,6 @@ def core_generate_predictions(game_type, history, hot_nums, cold_nums, pool_size
         bankers = []
 
     # --- 1. Signal Analysis ---
-    full_history = history
-    history = main_history(history, game_type)
     weighted_freq = calculate_weighted_frequency(history)
     pair_matrix = calculate_pair_correlation(history)
     triplet_matrix = calculate_triplet_correlation(history)
@@ -665,21 +653,14 @@ def core_generate_predictions(game_type, history, hot_nums, cold_nums, pool_size
             if n > cfg["range"]: continue # Safety filter
             scores[n] = (w / max_w) * 50 
             
-        # Markov deep pattern boost, normalized to the same 0-50 scale as frequency
-        # (raw count*10 used to drown out every other signal)
-        markov_boost = Counter()
+        # Markov deep pattern boost
         if len(last_draw) >= 2:
             for i in range(len(last_draw)):
                 for j in range(i+1, len(last_draw)):
                     key = (last_draw[i], last_draw[j])
                     if key in markov_matrix:
                         for n, count in markov_matrix[key].items():
-                            markov_boost[n] += count
-        if markov_boost:
-            max_m = max(markov_boost.values())
-            for n, m in markov_boost.items():
-                if n <= cfg["range"]:
-                    scores[n] = scores.get(n, 0) + (m / max_m) * 50
+                            scores[n] = scores.get(n, 0) + (count * 10)
             
         for n in range(1, cfg["range"] + 1):
             if n not in scores: scores[n] = 0.1
@@ -786,7 +767,7 @@ def core_generate_predictions(game_type, history, hot_nums, cold_nums, pool_size
     if cfg["type"] == "special":
          if pool_size == 6 and cfg["balls"] == 5:
              final_result = final_result[:5]
-         special_part = analyze_special_number(full_history, cfg["special_range"], rng=rng)
+         special_part = rng.randint(1, cfg["special_range"])
          return final_result + [special_part]
          
     return final_result
@@ -811,14 +792,11 @@ def calculate_overdue_score(history, cfg):
     Law of Large Numbers: Calculates how overdue a number is.
     Returns a dictionary of {number: overdue_score_in_draws}
     """
-    never_seen = len(history)
-    last_seen = {n: never_seen for n in range(1, cfg["range"] + 1)}
-    found = set()
+    last_seen = {n: 999 for n in range(1, cfg["range"] + 1)}
     for idx, draw in enumerate(reversed(history)): # 0 is most recent
         for n in draw:
-            if n in last_seen and n not in found:
+            if n in last_seen and last_seen[n] == 999:
                 last_seen[n] = idx
-                found.add(n)
     return last_seen
 
 def mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=None):
@@ -833,9 +811,6 @@ def mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=None):
     """
     rng = random.Random(seed) if seed is not None else random
     cfg = GAME_CONFIG[game_type]
-    full_history = history
-    history = main_history(history, game_type)
-    use_filters = st.session_state.get("USE_SHAPE_FILTERS", False)
     
     # 1. Base Scores from Overdue (LLN)
     overdue_stats = calculate_overdue_score(history, cfg)
@@ -888,18 +863,28 @@ def mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=None):
         
         core_draw = sorted(rng.sample(pool, needed))
         
-        # --- Strict Filters (opt-in) ---
-        if use_filters:
-            # 1. No 3 consecutive
-            has_3_consec = any(core_draw[i+2] - core_draw[i] == 2 for i in range(len(core_draw) - 2))
-            if has_3_consec: continue
-            
-            # 2. Decade Distribution
-            if any(count > 3 for count in Counter(n // 10 for n in core_draw).values()): continue
-            
-            # 3. Prime count
-            primes_count = len([n for n in core_draw if n in primes_list])
-            if primes_count < 1 or primes_count > 3: continue
+        # --- Strict Filters ---
+        # 1. No 3 consecutive
+        consecutive_count = 0
+        has_3_consec = False
+        for i in range(len(core_draw) - 1):
+            if core_draw[i+1] - core_draw[i] == 1:
+                consecutive_count += 1
+                if consecutive_count >= 2:
+                    has_3_consec = True
+                    break
+            else:
+                consecutive_count = 0
+        if has_3_consec: continue
+        
+        # 2. Decade Distribution
+        decades = [n // 10 for n in core_draw]
+        decade_counts = Counter(decades)
+        if any(count > 3 for count in decade_counts.values()): continue
+        
+        # 3. Prime count (1-3 primes is optimal for jackpots)
+        primes_count = len([n for n in core_draw if n in primes_list])
+        if primes_count < 1 or primes_count > 3: continue
         
         # Score the draw
         draw_score = sum(base_scores.get(n, 0) for n in core_draw)
@@ -921,9 +906,10 @@ def mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=None):
     final_result = best_candidate
     
     if cfg["type"] == "special":
-        final_result.append(analyze_special_number(full_history, cfg["special_range"], rng=rng))
+        special_part = rng.randint(1, cfg["special_range"])
+        final_result.append(special_part)
         
-    top_overdue = [n for n, score in list(overdue_stats.items()) if score < len(history)]
+    top_overdue = [n for n, score in list(overdue_stats.items()) if score != 999]
     top_overdue.sort(key=lambda x: overdue_stats[x], reverse=True)
         
     details = {
@@ -934,205 +920,6 @@ def mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=None):
         
     return final_result, details
 
-
-
-# --- ANTI-SPLIT: SAME ODDS, BIGGER SHARE IF YOU WIN ---
-# Numbers Vietnamese players tend to favour (lộc/phát/thần tài...). Rough heuristic, not data.
-POPULAR_NUMBERS = {6, 7, 8, 9, 39}
-
-def anti_split_penalty(ticket, game_type, hot_set, last_set, past_draws):
-    """
-    Scores how 'popular' a ticket looks. 0 = unlikely to be shared by many other players.
-    Every ticket has identical odds; this only affects how many winners split the jackpot.
-    """
-    cfg = GAME_CONFIG[game_type]
-    R, balls = cfg["range"], cfg["balls"]
-    t = sorted(ticket)
-    penalty = 0
-    reasons = []
-
-    # Birthday bias: most people pick 1-31
-    need_high = min(balls // 2, R - 31)
-    highs = sum(1 for n in t if n > 31)
-    if highs < need_high:
-        penalty += (need_high - highs) * 3
-        reasons.append(f"chỉ {highs} số > 31")
-
-    diffs = [t[i+1] - t[i] for i in range(len(t) - 1)]
-    if len(set(diffs)) == 1:
-        penalty += 10
-        reasons.append("cấp số cộng")
-    if any(diffs[i] == 1 and diffs[i+1] == 1 for i in range(len(diffs) - 1)):
-        penalty += 5
-        reasons.append("3 số liên tiếp")
-
-    if max(Counter(n % 10 for n in t).values()) >= 3:
-        penalty += 3
-        reasons.append("trùng đuôi")
-    if sum(1 for n in t if n % 5 == 0 or n % 7 == 0) >= 4:
-        penalty += 3
-        reasons.append("nhiều bội 5/7")
-
-    popular = len(set(t) & POPULAR_NUMBERS)
-    if popular > 1:
-        penalty += (popular - 1) * 2
-        reasons.append("nhiều số 'đẹp'")
-    if len(set(t) & hot_set) >= 3:
-        penalty += 3
-        reasons.append("nhiều số nóng")
-    if len(set(t) & last_set) >= 2:
-        penalty += 2
-        reasons.append("lặp kỳ trước")
-    if frozenset(t) in past_draws:
-        penalty += 20
-        reasons.append("trùng bộ đã trúng")
-
-    return penalty, reasons
-
-def mode_anti_split(game_type, history, seed=None, samples=4000):
-    """
-    Picks a uniformly random ticket among those that look least like what the crowd plays.
-    Odds of winning are unchanged; expected payout if you win is higher.
-    """
-    rng = random.Random(seed) if seed is not None else random
-    cfg = GAME_CONFIG[game_type]
-    R, balls = cfg["range"], cfg["balls"]
-    main = main_history(history, game_type) if history else []
-
-    w_freq = calculate_weighted_frequency(main[-50:]) if main else Counter()
-    hot_set = {n for n, _ in w_freq.most_common(balls)}
-    last_set = set(main[-1]) if main else set()
-    past_draws = {frozenset(d) for d in main}
-
-    best, best_pen, best_reasons = [], None, []
-    for _ in range(samples):
-        t = sorted(rng.sample(range(1, R + 1), balls))
-        pen, reasons = anti_split_penalty(t, game_type, hot_set, last_set, past_draws)
-        if best_pen is None or pen < best_pen:
-            best, best_pen, best_reasons = t, pen, reasons
-            if pen == 0:
-                break  # first zero-penalty ticket is a uniform pick among all zero-penalty tickets
-
-    result = list(best)
-    if cfg["type"] == "special":
-        result.append(rng.randint(1, cfg["special_range"]))
-
-    details = {
-        "Analysis": "Anti-split: xác suất trúng như mọi vé, nhưng ít người trùng hơn nếu trúng",
-        "Điểm phổ biến (0 = tốt nhất)": best_pen,
-        "Còn vướng": best_reasons or "Không",
-    }
-    return result, details
-
-
-# --- PERSONAL FREQUENCY: DOB x NEXT DRAW -> ONE FIXED TICKET PER DRAW ---
-def life_path_number(dob):
-    """Pythagorean life path number (keeps master numbers 11/22/33)."""
-    n = sum(int(d) for d in dob.strftime("%d%m%Y"))
-    while n > 9 and n not in (11, 22, 33):
-        n = sum(int(d) for d in str(n))
-    return n
-
-def mode_personal_frequency(game_type, history, dob=None, draw_time=None, seed=None, samples=4000):
-    """
-    Entertainment mode. The 'energy code' is a hash of (DOB, game, next draw time), so the
-    same person gets the same ticket for a given draw and a new one every draw.
-    One number is anchored to the life-path family (lp, lp+9, lp+18...); the rest are
-    chosen with the anti-split penalty. Odds of winning are the same as any other ticket.
-    """
-    cfg = GAME_CONFIG[game_type]
-    R, balls = cfg["range"], cfg["balls"]
-
-    if dob is not None and draw_time is not None:
-        key = f"{dob:%Y-%m-%d}|{game_type}|{draw_time:%Y-%m-%d %H:%M}"
-    else:
-        key = f"{game_type}|seed={seed}"
-    digest = hashlib.sha256(key.encode()).hexdigest()
-    rng = random.Random(int(digest, 16))
-
-    lp = life_path_number(dob) if dob is not None else (int(digest[:8], 16) % 9) + 1
-    family = list(range(lp, R + 1, 9))
-    anchor = rng.choice(family)
-
-    main = main_history(history, game_type) if history else []
-    w_freq = calculate_weighted_frequency(main[-50:]) if main else Counter()
-    hot_set = {n for n, _ in w_freq.most_common(balls)}
-    last_set = set(main[-1]) if main else set()
-    past_draws = {frozenset(d) for d in main}
-
-    others = [n for n in range(1, R + 1) if n != anchor]
-    best, best_pen, best_reasons = [], None, []
-    for _ in range(samples):
-        t = sorted([anchor] + rng.sample(others, balls - 1))
-        pen, reasons = anti_split_penalty(t, game_type, hot_set, last_set, past_draws)
-        if best_pen is None or pen < best_pen:
-            best, best_pen, best_reasons = t, pen, reasons
-            if pen == 0:
-                break
-
-    result = list(best)
-    if cfg["type"] == "special":
-        result.append(rng.randint(1, cfg["special_range"]))
-
-    details = {
-        "Analysis": "Tần số Cá nhân (giải trí): ngày sinh × thời điểm quay kỳ tới",
-        "Kỳ quay": f"{draw_time:%d/%m/%Y %H:%M}" if draw_time else "Không xác định",
-        "Số chủ đạo": lp,
-        "Số neo (họ số chủ đạo)": anchor,
-        "Mã năng lượng": digest[:12].upper(),
-        "Điểm phổ biến (0 = ít người trùng)": best_pen,
-        "Còn vướng": best_reasons or "Không",
-        "Lưu ý": "Xác suất trúng giống mọi vé khác; cùng ngày sinh + cùng kỳ luôn ra cùng bộ số.",
-    }
-    return result, details
-
-TICKET_PRICE = 10000  # VND per ticket (6/55, 6/45, 5/35)
-
-def wheel_size_range(game_type):
-    """Allowed pool sizes for the 'Bao Số' mode."""
-    cfg = GAME_CONFIG[game_type]
-    return cfg["balls"] + 1, (15 if cfg["type"] == "special" else 18)
-
-def mode_personal_wheel(game_type, history, size, dob=None, draw_time=None, seed=None):
-    """
-    'Bao Số' built on top of the personal ticket: the personal ticket is the core, extra
-    numbers are drawn from the same energy code, leaning towards numbers the crowd avoids
-    (> 31, not 'lucky' numbers, not currently hot). Same odds as any pool of equal size.
-    """
-    cfg = GAME_CONFIG[game_type]
-    R, balls = cfg["range"], cfg["balls"]
-    ticket, details = mode_personal_frequency(game_type, history, dob=dob, draw_time=draw_time, seed=seed)
-    core, special = ticket[:balls], ticket[balls:]
-    size = max(balls, min(size, R))
-
-    key = f"wheel|{details['Mã năng lượng']}|{size}"
-    rng = random.Random(int(hashlib.sha256(key.encode()).hexdigest(), 16))
-
-    main = main_history(history, game_type) if history else []
-    w_freq = calculate_weighted_frequency(main[-50:]) if main else Counter()
-    hot_set = {n for n, _ in w_freq.most_common(balls)}
-
-    def crowd_weight(n):
-        w = 2.0 if n > 31 else 1.0
-        if n in POPULAR_NUMBERS: w *= 0.3
-        if n in hot_set: w *= 0.6
-        return w
-
-    pool = set(core)
-    candidates = [n for n in range(1, R + 1) if n not in pool]
-    while len(pool) < size:
-        pick = rng.choices(candidates, weights=[crowd_weight(n) for n in candidates], k=1)[0]
-        pool.add(pick)
-        candidates.remove(pick)
-
-    n_tickets = math.comb(size, balls)
-    details.update({
-        "Analysis": f"Bao {size} số cá nhân: lõi là vé cá nhân, mở rộng bằng số ít người chọn",
-        "Vé lõi": core,
-        "Số vé": n_tickets,
-        "Chi phí": f"{n_tickets * TICKET_PRICE:,}đ".replace(",", "."),
-    })
-    return sorted(pool) + special, details
 
 def mode_b_personal_luck(game_type, name, dob):
     """
@@ -1173,6 +960,8 @@ def mode_c_chaos(game_type):
         main_part = sorted(random.sample(range(1, cfg["range"] + 1), cfg["balls"]))
         special_part = random.randint(1, cfg["special_range"])
         return main_part + [special_part]
+
+    return result
 
 def backtest_algorithm(game_type, history, system_size=10, test_count=10):
     """
@@ -1232,6 +1021,8 @@ def backtest_algorithm(game_type, history, system_size=10, test_count=10):
         if match_count >= 5: # High success threshold
             hits += 1
             
+    return hits, details
+
     return hits, details
 
 # --- ESOTERIC ALGORITHMS ---
@@ -1666,7 +1457,6 @@ def analyze_periodicity(history, game_type):
     cfg = GAME_CONFIG[game_type]
     N = cfg["range"]
     scores = {}
-    history = main_history(history, game_type)
     
     # We only analyze the last 100 draws for signal freshness
     recent_history = history[-200:] if len(history) > 200 else history
@@ -1709,7 +1499,6 @@ def adaptive_bayesian_score(history, game_type):
     if not history: return {}
     cfg = GAME_CONFIG[game_type]
     N = cfg["range"]
-    history = main_history(history, game_type)
     
     # Prior: Uniform probability
     # P(H) = 1/N
@@ -1735,6 +1524,8 @@ def adaptive_bayesian_score(history, game_type):
     total_p = sum(probs.values())
     return {k: v/total_p for k, v in probs.items()}
 
+    return {k: v/total_p for k, v in probs.items()}
+
 # --- PHASE 20: DEEP PATTERN MATCHING (BẠC NHỚ) ---
 def find_historical_matches(history, current_draw_numbers, game_type, threshold=0.6):
     """
@@ -1747,15 +1538,14 @@ def find_historical_matches(history, current_draw_numbers, game_type, threshold=
     # Convert current to set for fast intersect
     # Handle 5/35 special separation?
     # Simple approach: Match main numbers.
-    balls = GAME_CONFIG[game_type]["balls"] if game_type in GAME_CONFIG else 6
-    current_set = set(current_draw_numbers[:balls])
+    current_set = set(current_draw_numbers[:5]) if len(current_draw_numbers) >= 5 else set(current_draw_numbers)
     
     # Iterate through history (excluding the very last item if it IS the current one we just added?)
     # We look at history[i]. If history[i] ~ current, we record history[i+1]
     
     for i in range(len(history) - 1):
         past_draw = history[i]
-        past_set = set(past_draw[:balls])
+        past_set = set(past_draw[:5]) if len(past_draw) >= 5 else set(past_draw)
         
         # Calculate Similarity (Jaccard or just Intersection count)
         intersection = len(current_set.intersection(past_set))
@@ -1839,6 +1629,8 @@ def analyze_sequence_similarity(history, game_type, depth=3):
     total = sum(prediction_scores.values())
     if total == 0: return {}
     
+    return {k: (v/total) * 100.0 for k, v in prediction_scores.items()}
+
     return {k: (v/total) * 100.0 for k, v in prediction_scores.items()}
 
 def calculate_fractal_score(history, game_type):
@@ -1981,12 +1773,6 @@ def mode_f_hybrid(game_type, history, hot_nums, cold_nums, seed=None, quantum_do
     # 1. Run Sub-Engines
     # AI: Use System 12 to cast a wide net
     ai_pool = mode_system_play(game_type, history, hot_nums, cold_nums, system_size=12, seed=seed, bankers=bankers, style=style)
-    if cfg["type"] == "special":
-        ai_pool = ai_pool[:-1]  # drop the special ball appended by the core engine
-    
-    # Everything below analyses main numbers only; the 5/35 special ball is handled separately
-    full_history = history
-    history = main_history(history, game_type)
     
     # Quantum: Personal
     q_res, _ = mode_d_quantum(game_type, seed=seed, quantum_dob=quantum_dob)
@@ -2126,11 +1912,10 @@ def mode_f_hybrid(game_type, history, hot_nums, cold_nums, seed=None, quantum_do
              # REDUCED: Was 10.0, now 2.0 (Avoid dictatorship)
              votes[n] += bayes_scores[n] * 2.0
              
-    n_main = cfg["balls"] if cfg["type"] == "special" else None
-    for n in q_res[:n_main]:
+    for n in q_res:
         votes[n] += w_q
         
-    for n in iching_res[:n_main]:
+    for n in iching_res:
         votes[n] += w_i
         
     # Spectral Boost (FFT)
@@ -2168,7 +1953,7 @@ def mode_f_hybrid(game_type, history, hot_nums, cold_nums, seed=None, quantum_do
         main_balls = results[:cfg["balls"]]
         # special = rng.randint(1, cfg["special_range"])
         # Improved: Use Data-Driven Prediction
-        pred_special = analyze_special_number(full_history, cfg["special_range"], rng=rng)
+        pred_special = analyze_special_number(history, cfg["special_range"])
         results = main_balls + [pred_special]
     
     # Debug Info
@@ -2211,7 +1996,7 @@ def generate_predictions(game_type, model_choice="Hybrid", seed=None, bio_score=
          # Use specialized engine
          return mode_3d_engine(game_type, history)
 
-    hot_nums, cold_nums = analyze_history(history, game_type)
+    hot_nums, cold_nums = analyze_history(history)
     
     # 3. Predict
     if "Quantum_Jackpot" in model_choice:
@@ -2233,31 +2018,13 @@ def generate_predictions(game_type, model_choice="Hybrid", seed=None, bio_score=
         pool = predictor.predict_jackpot_pool(history, pool_size=pool_size)
         
         if GAME_CONFIG[game_type]["type"] == "special":
-             special = analyze_special_number(history, GAME_CONFIG[game_type]["special_range"], rng=random.Random(seed))
+             special = analyze_special_number(history, GAME_CONFIG[game_type]["special_range"])
              pool.append(special)
         
         return pool, {"Analysis": f"Quantum-Fractal {pool_size} (Săn Jackpot Khủng)"}
         
     elif model_choice == "Jackpot":
         return mode_jackpot_optimized(game_type, history, hot_nums, cold_nums, seed=seed)
-        
-    elif model_choice == "AntiSplit":
-        return mode_anti_split(game_type, history, seed=seed)
-        
-    elif model_choice.startswith("Wheel"):
-        size = int(model_choice.split()[-1])
-        draw_time = get_next_draw_time(game_type) if quantum_dob is not None else None
-        return mode_personal_wheel(game_type, history, size, dob=quantum_dob, draw_time=draw_time, seed=seed)
-        
-    elif model_choice == "Personal":
-        draw_time = get_next_draw_time(game_type) if quantum_dob is not None else None
-        return mode_personal_frequency(game_type, history, dob=quantum_dob, draw_time=draw_time, seed=seed)
-        
-    elif model_choice.startswith("System"):
-        size = int(model_choice.split()[-1])
-        size = min(size, GAME_CONFIG[game_type]["range"])
-        pool = mode_system_play(game_type, history, hot_nums, cold_nums, system_size=size, seed=seed, bankers=bankers, style=style)
-        return pool, {"Analysis": f"Hệ thống {size} số (bao)"}
         
     elif model_choice == "Fractal Chaos":
         return mode_g_fractal(game_type, history, hot_nums, cold_nums, seed=seed)
@@ -2341,7 +2108,7 @@ def measure_accuracy(game_type, history, depth=5):
         if not past_history: continue
         
         # Quick recalc
-        hot, cold = analyze_history(past_history, game_type)
+        hot, cold = analyze_history(past_history)
         
         # Predict
         # We assume standard weights for backtest
@@ -2362,66 +2129,10 @@ def measure_accuracy(game_type, history, depth=5):
             results_log.append(matches)
             
         except Exception as e:
-            print(f"measure_accuracy: draw {i} skipped ({e})")
+            pass # Skip error
             
-    avg_acc = total_matches / len(results_log) if results_log else 0.0
+    avg_acc = total_matches / depth if depth > 0 else 0
     return avg_acc, results_log
-
-
-def backtest_vs_random(game_type, history, model_choice, n_test=100, window=500):
-    """
-    Walk-forward backtest: for each of the last n_test draws, predict using only the
-    draws before it, and compare hits with a random ticket of the same size.
-    Returns a dict with average hits, hit distributions and the theoretical expectation.
-    """
-    cfg = GAME_CONFIG[game_type]
-    R, balls = cfg["range"], cfg["balls"]
-    is_special = cfg["type"] == "special"
-    n_test = min(n_test, len(history) - 50)
-    if n_test <= 0:
-        return None
-
-    rng = random.Random(12345)
-    model_hits, random_hits, sizes = [], [], []
-    for i in range(len(history) - n_test, len(history)):
-        past = history[max(0, i - window):i]
-        target = set(history[i][:balls])
-        try:
-            pred, _ = generate_predictions(game_type, model_choice=model_choice, seed=i, history=past)
-        except Exception as e:
-            print(f"backtest_vs_random: draw {i} skipped ({e})")
-            continue
-        pred_main = set(pred[:-1] if is_special else pred)
-        k = len(pred_main)
-        sizes.append(k)
-        model_hits.append(len(pred_main & target))
-        random_hits.append(len(set(rng.sample(range(1, R + 1), k)) & target))
-
-    if not model_hits:
-        return None
-    k = round(sum(sizes) / len(sizes))
-    return {
-        "n": len(model_hits),
-        "pick_size": k,
-        "model_mean": sum(model_hits) / len(model_hits),
-        "random_mean": sum(random_hits) / len(random_hits),
-        "theory_mean": balls * k / R,
-        "model_dist": dict(sorted(Counter(model_hits).items())),
-        "random_dist": dict(sorted(Counter(random_hits).items())),
-    }
-
-
-def jackpot_odds(game_type, pick_size=None):
-    """1-in-N odds that a single ticket (or a full wheel of pick_size numbers) hits the jackpot."""
-    cfg = GAME_CONFIG[game_type]
-    if cfg["type"] == "3d_pro":
-        return None
-    balls, R = cfg["balls"], cfg["range"]
-    total = math.comb(R, balls)
-    if cfg["type"] == "special":
-        total *= cfg["special_range"]
-    covered = math.comb(pick_size, balls) if pick_size and pick_size > balls else 1
-    return total / covered
 
 
 # --- PHASE 22: QUANTUM REALITY COLLAPSE (GOD MODE) ---
@@ -2575,7 +2286,7 @@ def main():
     <style>
         .ball-container {
             display: flex;
-            justify-content: center;
+            justify_content: center;
             gap: 12px;
             margin-top: 25px;
             margin-bottom: 25px;
@@ -2588,7 +2299,7 @@ def main():
             border-radius: 50%;
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify_content: center;
             color: white;
             font-weight: 800;
             font-size: 22px;
@@ -2641,50 +2352,71 @@ def main():
     st.markdown('<div class="main-header"><h1>AI THẦN TÀI PRO</h1><p>Công nghệ Dự đoán Xổ số Đa Chiều</p></div>', unsafe_allow_html=True)
 
     # Lucky BG
-    for bg_file in ("lucky_bg.jpg", "lucky_bg.png"):
-        if os.path.exists(bg_file):
-            set_png_as_page_bg(bg_file)
-            break
+    bg_file = "lucky_bg.png"
+    if os.path.exists(bg_file):
+         set_png_as_page_bg(bg_file)
 
-    # --- CONFIGURATION ---
+    # --- CONFIGURATION ROW ---
     c1, c2 = st.columns(2)
+    
     with c1:
         game_choice = st.selectbox("🎯 CHỌN LOẠI VÉ", ["6/55", "6/45", "5/35", "Max 3D Pro"])
+        
     with c2:
-        mode_label = st.radio("🧠 CHẾ ĐỘ", ["🎯 Vé Cá Nhân", "🧺 Bao Số"], horizontal=True)
-    
-    cfg = GAME_CONFIG[game_choice]
-    is_3d = cfg["type"] == "3d_pro"
-    
-    dob_input = st.date_input(
-        "🎂 Ngày sinh (khóa bộ số theo bạn và theo kỳ quay)", value=None,
-        min_value=datetime(1920, 1, 1), max_value=datetime.now()
-    )
-    personal_dob = datetime.combine(dob_input, datetime.min.time()) if dob_input else None
-    
-    wheel_size = None
-    if is_3d:
-        st.caption("Max 3D Pro dùng bộ chọn riêng theo tần suất; chế độ và ngày sinh không áp dụng.")
-    elif mode_label == "🧺 Bao Số":
-        lo, hi = wheel_size_range(game_choice)
-        wheel_size = st.slider("Số lượng số bao", lo, hi, lo + 1)
-        n_tickets = math.comb(wheel_size, cfg["balls"])
-        st.caption(f"Bao {wheel_size} số = {n_tickets:,} vé × {TICKET_PRICE:,}đ = {n_tickets * TICKET_PRICE:,}đ".replace(",", "."))
-    
-    model_key = f"Wheel {wheel_size}" if wheel_size else "Personal"
+        # Simplied Model Names
+        model_options = {
+            "Siêu Cấp Khai Phá Jackpot (Bao 18)": "Quantum_Jackpot_18",
+            "Siêu Cấp Khai Phá Jackpot (Bao 15)": "Quantum_Jackpot_15",
+            "Tối ưu Jackpot (Mở Rộng)": "Jackpot",
+            "Hybrid AI (Chuẩn)": "Hybrid",
+            "Fractal Chaos (Mới)": "Fractal Chaos",
+            "Genetic Alpha (Khoa học)": "Genetic Alpha",
+            "Hệ thống 12 (Bao)": "System 12",
+            "Hệ thống 18 (Bao)": "System 18", 
+            "Ngẫu Nhiên (Vui)": "Random"
+        }
+        display_model = st.selectbox("🧠 CHỌN THUẬT TOÁN", list(model_options.keys()))
+        model_key = model_options[display_model]
+    # Advanced (Quantum/I Ching)
+    with st.expander("⚙️ Nâng cao (Phong thủy & Lượng tử & AI Sâu)"):
+         st.caption("Nhập ngày sinh để kích hoạt năng lượng cá nhân hóa.")
+         min_date = datetime(1920, 1, 1)
+         max_date = datetime.now()
+         dob_input = st.date_input("Ngày sinh của bạn:", value=None, min_value=min_date, max_value=max_date)
+         
+         if dob_input:
+             # Personal Mode
+             u_quantum_dob = datetime.combine(dob_input, datetime.min.time())
+             vip_iching_dob = u_quantum_dob
+             st.success("✅ Đã kích hoạt năng lượng cá nhân!")
+         else:
+             # Real-time Mode
+             now_energy = datetime.now()
+             u_quantum_dob = now_energy 
+             vip_iching_dob = now_energy
+             st.info("⚡ Đang dùng năng lượng thời gian thực (Ngày giờ hiện tại).")
+             
+         st.markdown("---")
+         st.caption("Kích hoạt các thuật toán Machine Learning / Deep Learning nặng. (Có thể làm chậm thời gian tải nhưng tăng tối đa độ chính xác).")
+         use_dl = st.checkbox("🧠 Kích hoạt Mạng Nơ-ron (LSTM) & Phân cụm Máy học", value=False)
+         st.session_state["USE_DEEP_LEARNING"] = use_dl
 
     # --- DATA STATUS & STATS ---
+    cfg = GAME_CONFIG[game_choice]
+    
+    # Load Data silently
     history = load_real_data(game_choice)
     hot_nums, cold_nums = [], []
     
     if history:
-         hot_nums, cold_nums = analyze_history(history, game_choice)
+         hot_nums, cold_nums = analyze_history(history)
          status_color = "🟢"
          status_text = "Dữ liệu Online"
     else:
          status_color = "🟠"
          status_text = "Dữ liệu Giả lập"
          
+    # Mini Stats Display
     with st.expander(f"{status_color} Thống kê nhanh ({status_text})", expanded=False):
         sc1, sc2 = st.columns(2)
         with sc1:
@@ -2694,69 +2426,62 @@ def main():
             
     # --- PREDICTION BUTTON ---
     st.markdown("###")
-    if st.button("🔮 CHỌN SỐ CHO KỲ TỚI", type="primary"):
-        if personal_dob is None and not is_3d:
-             st.info("Chưa nhập ngày sinh: lần này dùng mã ngẫu nhiên, bấm lại sẽ ra bộ khác.")
+    if st.button("🔮 PHÂN TÍCH & DỰ ĐOÁN NGAY", type="primary"):
         
+        # Progress Effect
+        progress_text = st.empty()
+        bar = st.progress(0)
+        
+        stages = [
+            "⚡ Đang khởi động Neural Network...",
+            "🌌 Quét dữ liệu Đa vũ trụ...",
+            "🌀 Phân tích Fractal & Chuỗi số...",
+            "✅ Đang tổng hợp kết quả..."
+        ]
+        
+        for i, stage in enumerate(stages):
+            progress_text.text(stage)
+            bar.progress((i + 1) * 25)
+            time.sleep(0.3)
+            
+        progress_text.empty()
+        bar.empty()
+        
+        # Generate
         seed = int(time.time())
-        with st.spinner("Đang tính mã năng lượng cho kỳ quay tới..."):
-            results, details = generate_predictions(
-                game_type=game_choice,
-                model_choice=model_key,
-                seed=seed,
-                history=history,
-                quantum_dob=personal_dob,
-            )
+        
+        # Determine styles based on chaos/random
+        style = "Modern"
+        bankers = None # No UI for bankers anymore to keep it simple
+        
+        results, details = generate_predictions(
+            game_type=game_choice,
+            model_choice=model_key,
+            seed=seed,
+            history=history,
+            bankers=bankers,
+            style=style
+        )
         
         # --- DISPLAY RESULT ---
         st.markdown(f"<h3 style='text-align: center; color: #333;'>💎 KẾT QUẢ GỢI Ý ({game_choice})</h3>", unsafe_allow_html=True)
+        
+        # Display Balls
         display_balls(results, game_choice)
         
-        if wheel_size:
-             st.success(f"📌 Bộ bao {wheel_size} số cho kỳ tới. Chúc bạn may mắn!")
+        # Success Message
+        if "System" in model_key:
+             st.success(f"📌 Đã lọc ra bộ {len(results)} số tiềm năng nhất để bao lưới.")
         else:
-             st.success("✨ Vé của bạn cho kỳ tới. Chúc bạn may mắn!")
-        
-        # Honest odds
-        main_count = len(results) - 1 if cfg["type"] == "special" else len(results)
-        odds = jackpot_odds(game_choice, main_count)
-        if odds:
-             st.caption(
-                 f"🎲 Xác suất trúng Jackpot: 1 / {odds:,.0f}. "
-                 "Mọi bộ số đều có cùng xác suất; bộ này được chọn để ít người trùng nhất nếu trúng."
-             )
-        
-        add_to_log(game_choice, model_key, results, get_next_draw_time(game_choice), seed)
+             st.success(f"✨ Bộ số vàng đã được khóa. Chúc bạn may mắn!")
 
         # Debug/Explain Info
         with st.expander("🔍 Xem phân tích chi tiết"):
              st.json(details)
              
-    # --- HONEST BACKTEST ---
-    if cfg["type"] != "3d_pro":
-        with st.expander("📊 Kiểm chứng: Thuật toán vs Ngẫu nhiên"):
-            st.caption("Chạy lại thuật toán trên các kỳ đã quay (chỉ dùng dữ liệu trước mỗi kỳ) và so với vé ngẫu nhiên cùng số lượng.")
-            n_test = st.slider("Số kỳ kiểm tra", 20, 300, 100, step=10)
-            if st.button("▶️ Chạy kiểm chứng"):
-                with st.spinner("Đang chạy backtest..."):
-                    bt = backtest_vs_random(game_choice, history, model_key, n_test=n_test)
-                if not bt:
-                    st.warning("Không đủ dữ liệu để kiểm chứng.")
-                else:
-                    b1, b2, b3 = st.columns(3)
-                    b1.metric("Thuật toán", f"{bt['model_mean']:.3f}")
-                    b2.metric("Ngẫu nhiên", f"{bt['random_mean']:.3f}")
-                    b3.metric("Lý thuyết", f"{bt['theory_mean']:.3f}")
-                    st.caption(f"Số trúng trung bình mỗi kỳ, {bt['n']} kỳ, vé {bt['pick_size']} số.")
-                    st.dataframe(pd.DataFrame({
-                        "Thuật toán": pd.Series(bt["model_dist"]),
-                        "Ngẫu nhiên": pd.Series(bt["random_dist"]),
-                    }).fillna(0).astype(int).rename_axis("Số trúng"))
-                    st.info("Chênh lệch nhỏ quanh mức lý thuyết là dao động ngẫu nhiên, không phải khả năng dự đoán.")
-
     # Footer
     st.markdown("---")
-    st.caption("AI Thần Tài Pro © 2026 - Công cụ chọn số giải trí. Xổ số là ngẫu nhiên; hãy chơi trong ngân sách.")
+    st.caption("AI Thần Tài Pro © 2026 - Dự đoán xổ số bằng công nghệ AI & Lượng tử.")
 
 if __name__ == "__main__":
     main()

@@ -5,7 +5,7 @@ from backtest_logic import (
 from datetime import datetime
 import json
 
-def run_backtest(game_type="6/55", test_count=30):
+def run_backtest(game_type="6/55", test_count=30, tickets_per_draw=10):
     print(f"\n--- Backtesting {game_type} (Last {test_count} draws) ---\n")
     
     # 1. Load full history
@@ -39,48 +39,41 @@ def run_backtest(game_type="6/55", test_count=30):
         # Check backtest_logic.py: analyze_history only uses numpy/collections. Safe.
         hot, cold = analyze_history(past_data)
         
-        # Predict
-        # Use a deterministic seed based on index to be reproducible but 'random' for that day
-        # In real app we used next_draw_time timestamp. Here we use i * 9999
-        seed_val = i * 9999
-        
-        # Mocking bio/dob
-        # Mode F Hybrid requires quantum_dob/iching_dob
-        # We'll pass None or defaults
+        # Predict multiple tickets per draw
         try:
-            pred_res, details = mode_f_hybrid(
+            from backtest_logic import mode_system_play
+            import random
+            
+            best_matches = -1
+            best_p_set = set()
+            t_set = set(target[:5]) if is_535 else set(target[:6])
+            actual_balls = 5 if is_535 else 6
+            
+            pool = mode_system_play(
                 game_type, past_data, hot, cold,
-                seed=seed_val,
-                bio_score=0.5, # Neutral/High
-                style="Modern"
+                system_size=12, seed=i*9999, style="Modern"
             )
             
-            # Compare
-            # Standardize for comparison
-            # 6/55: target is [n1, n2, n3, n4, n5, n6, (bonus?)]
-            # pred is [n1...n6]
-            
-            # If 6/55 data has 7 items, take first 6
-            t_set = set(target[:6])
-            p_set = set(pred_res[:6])
-            
-            if is_535:
-                # 5/35: target is [m1..m5, special]
-                # pred is [m1..m5, special]
-                # Let's count MATCHING MAIN NUMBERS separately from SPECIAL?
-                # Usually backtest counts "How many numbers did I catch?"
-                # Simple intersection of main numbers
-                t_set = set(target[:5])
-                p_set = set(pred_res[:5])
+            rng = random.Random(i*9999)
+            tickets = []
+            if len(pool) >= actual_balls:
+                for _ in range(tickets_per_draw):
+                    tickets.append(set(rng.sample(pool, actual_balls)))
+            else:
+                tickets.append(set(pool))
                 
-            matches = len(t_set.intersection(p_set))
-            hits_distribution[matches] = hits_distribution.get(matches, 0) + 1
+            for p_set in tickets:
+                matches = len(t_set.intersection(p_set))
+                if matches > best_matches:
+                    best_matches = matches
+                    best_p_set = p_set
+                
+            hits_distribution[best_matches] = hits_distribution.get(best_matches, 0) + 1
             total_draws += 1
-            total_hits += matches
+            total_hits += best_matches
             
-            # Print significant hits
-            if matches >= 3:
-                print(f"Draw {i}: HIT {matches} numbers! Target: {sorted(list(t_set))} | Pred: {sorted(list(p_set))}")
+            if best_matches >= 3:
+                print(f"Draw {i}: HIT {best_matches} numbers! Target: {sorted(list(t_set))} | Best Pred: {sorted(list(best_p_set))}")
             
         except Exception as e:
             print(f"Error at draw {i}: {e}")
@@ -97,5 +90,5 @@ def run_backtest(game_type="6/55", test_count=30):
         print(f"  {k} matches: {count} ({pct:.1f}%) {bar}")
 
 if __name__ == "__main__":
-    run_backtest("6/55", 50)
-    run_backtest("5/35", 50)
+    run_backtest("6/55", 500, tickets_per_draw=10)
+    run_backtest("5/35", 500, tickets_per_draw=10)
