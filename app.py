@@ -234,10 +234,10 @@ def mode_3d_engine(game_type, history):
 def load_real_data(game_type):
     """
     Fetches real data from online sources (JSONL format).
-    Returns the last 500 draws.
+    Returns the full draw history (6/55 and 6/45 go back to 2017).
     """
     cfg = GAME_CONFIG[game_type]
-    limit = 500 # Maximize history but keep it fast
+    limit = 500  # only used for the simulated fallback
     
     try:
         url = cfg.get("data_url")
@@ -300,9 +300,7 @@ def load_real_data(game_type):
                 continue
                 
         if len(history) > 10:
-             # Try to fetch very latest if possible (for 3D Pro might be hard)
-             # For now, just return what we have
-             return history[-limit:]
+             return history
         else:
             return generate_simulation(game_type, limit)
 
@@ -2368,7 +2366,7 @@ def measure_accuracy(game_type, history, depth=5):
     return avg_acc, results_log
 
 
-def backtest_vs_random(game_type, history, model_choice, n_test=100, window=500):
+def backtest_vs_random(game_type, history, model_choice, n_test=100, window=None):
     """
     Walk-forward backtest: for each of the last n_test draws, predict using only the
     draws before it, and compare hits with a random ticket of the same size.
@@ -2384,7 +2382,7 @@ def backtest_vs_random(game_type, history, model_choice, n_test=100, window=500)
     rng = random.Random(12345)
     model_hits, random_hits, sizes = [], [], []
     for i in range(len(history) - n_test, len(history)):
-        past = history[max(0, i - window):i]
+        past = history[max(0, i - window):i] if window else history[:i]
         target = set(history[i][:balls])
         try:
             pred, _ = generate_predictions(game_type, model_choice=model_choice, seed=i, history=past)
